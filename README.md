@@ -1,0 +1,2 @@
+# HouseElectric
+Home electricity consumption and solar production data 
