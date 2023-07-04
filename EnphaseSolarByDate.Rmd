@@ -15,9 +15,9 @@ library(httr)
 ```{r}
 
 solar_import <- read_csv("2801736_system_energy_20220404_to_20230624.csv")
-jul2_update <- read_csv("2801736_system_energy_20230625_to_20230701.csv")
+solar_update <- read_csv("2801736_system_energy_20230625_to_20230701.csv")
 solar_import <- solar_import %>% 
-  bind_rows(jul2_update)
+  bind_rows(solar_update)
 
 (solarByDay <- solar_import %>% 
   rename(Date = `Date/Time`) %>% 
