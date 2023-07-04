@@ -1,0 +1,103 @@
+---
+title: "Enphase Solar Hourly"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(hms)
+```
+
+
+```{r}
+import <- read_csv("enphase_history_230701.csv")
+
+(hourly_production <- import %>% 
+  rename(datetime = `Date/Time`, energy_produced_Wh = `Energy Produced (Wh)`) %>% 
+  mutate(datetime = as.POSIXct(datetime,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
+  mutate(date = date(datetime), time = as.hms(format(datetime, format = "%H:%M:%S")), month = month(datetime, label=TRUE), year = year(datetime), day = day(datetime), yday = yday(datetime), monthday = format(datetime, "%m-%d"), wday = wday(datetime, label=TRUE), equinox_day = (yday + 10) %% 365, equinox_group = floor((equinox_day+15)/30)*30)
+)
+```
+
+
+
+```{r}
+ggplot(hourly_production, aes(datetime, energy_produced_Wh)) +
+  geom_point()
+
+ggplot(hourly_production, aes(time, energy_produced_Wh)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_point()
+
+```
+
+Group by time, max energy produced
+Fit curve
+Draw each month's curve on same plot
+
+Look at residuals by date within month
+Fit curve
+Will be different for each month
+how to handle July and Dec?
+
+Linear fit between months
+Center on the 20th
+Maybe don't use months, use groups of 30 days or something? 
++10, mod 182/365
+
+Not symmetrical! More panels on west side, and slightly off from pure east/west
+
+```{r}
+
+daily_max <- hourly_production %>% 
+  group_by(date) %>% 
+  summarize(peak_Wh = max(energy_produced_Wh), dawn = as.hms(min(case_when(energy_produced_Wh > 0 ~ time), na.rm = TRUE)), dusk = as.hms(max(case_when(energy_produced_Wh > 0 ~ time), na.rm = TRUE)))
+
+#Show annual max production trend
+ggplot(daily_max, aes(date,peak_Wh)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_point() + 
+  scale_x_date(date_breaks="1 month", date_labels="%B-%Y")
+
+#Show annual dawn/dusk trend
+ggplot(daily_max, aes(date)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_point(aes(y=dawn), color="yellow") +
+  geom_point(aes(y=dusk), color="orange")
+
+
+```
+```{r}
+
+monthly_max <- hourly_production %>% 
+  group_by(month, time) %>% 
+  summarize(peak_Wh = quantile(energy_produced_Wh,.99))
+
+#Show annual max production trend
+ggplot(monthly_max, aes(time,peak_Wh,group=month,color=month)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_point()
+
+```
+
+
+```{r}
+
+daily_max_eq <- hourly_production %>% 
+  group_by(equinox_group) %>% 
+  summarize(peak_Wh = quantile(energy_produced_Wh, .999), dawn = as.hms(quantile(case_when(energy_produced_Wh > 0 ~ time), .99,  na.rm = TRUE)), dusk = as.hms(quantile(case_when(energy_produced_Wh > 0 ~ time), .01, na.rm = TRUE)))
+
+#Show annual max production trend
+ggplot(daily_max_eq, aes(equinox_group,peak_Wh)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_point()
+
+#Show annual dawn/dusk trend
+ggplot(daily_max_eq, aes(equinox_group)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_point(aes(y=dawn)) +
+  geom_point(aes(y=dusk))
+
+```
+

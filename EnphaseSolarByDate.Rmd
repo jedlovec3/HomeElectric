@@ -1,0 +1,132 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(corrr)
+library(ggpubr)
+library(tidymodels)
+```
+
+```{r}
+
+solar_import <- read_csv("2801736_system_energy_20220404_to_20230624.csv")
+jul2_update <- read_csv("2801736_system_energy_20230625_to_20230701.csv")
+solar_import <- solar_import %>% 
+  bind_rows(jul2_update)
+
+(solarByDay <- solar_import %>% 
+  rename(Date = `Date/Time`) %>% 
+  mutate(Date = as.Date(Date, '%m/%d/%Y'), `Energy Produced (kWh)` = `Energy Produced (Wh)`/1000) %>% 
+  filter(Date > "2022-04-14")
+)
+
+```
+
+```{r}
+solarByDay %>% 
+  filter(Date > "2022-04-15" & Date < "2023-04-16") %>% 
+  summarize(total = sum(`Energy Produced (kWh)`))
+
+```
+
+
+```{r}
+ggplot(solarByDay, aes(Date, `Energy Produced (kWh)`)) +
+  geom_point() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  ggtitle("Residential Solar System (15.5 kW)") + 
+  geom_smooth(span=.4) 
+
+```
+
+
+```{r}
+weather_import <- read_csv("18078 2022-04-15 to 2023-07-01.csv")
+```
+
+https://www.visualcrossing.com/resources/documentation/weather-data/how-to-obtain-solar-radiation-data/
+
+```{r}
+
+(solar_weather <- weather_import %>% 
+   inner_join(solarByDay, by = join_by(datetime == Date)) %>% 
+   mutate(daylight = as.numeric(sunset-sunrise,units="mins"), solarenergy_kWh = solarenergy/3.6, type = "Historical")
+ )
+
+solar_weather %>% 
+  select(`Energy Produced (kWh)`,tempmax,humidity,precip,precipcover,snow,snowdepth,cloudcover,visibility,solarradiation,,solarenergy,uvindex,daylight) %>% 
+  correlate()
+
+ggplot(solar_weather, aes(solarenergy_kWh,`Energy Produced (kWh)`)) +
+  geom_point() +
+  geom_smooth(method="lm", formula = y ~ x + 0) +
+  stat_regline_equation(formula = y ~ x + 0)
+
+```
+
+```{r}
+
+solarproduction_model <- linear_reg() %>% 
+  fit(`Energy Produced (kWh)` ~ solarenergy_kWh + 0, data=solar_weather)
+
+tidy(solarproduction_model)
+```
+
+```{r}
+import_forecast <- read_csv("18078_visualcrossing_forecast_15day_230702.csv")
+
+forecast <- import_forecast %>%  
+   mutate(daylight = as.numeric(sunset-sunrise,units="mins"), solarenergy_kWh = solarenergy/3.6, type = "Forecast")
+
+solar_forecast <- predict(solarproduction_model, new_data = forecast) 
+solar_forecast_ci <- predict(solarproduction_model, new_data = forecast, type="conf_int")
+
+#plot_data <- 
+forecast <- forecast %>% 
+  bind_cols(solar_forecast) %>% 
+  bind_cols(solar_forecast_ci) 
+
+forecast <- forecast %>% 
+  mutate(`Energy Produced (kWh)` = .pred, `Energy Produced (Wh)` = `Energy Produced (kWh)`*1000)
+
+forecast
+```
+
+```{r}
+(solar_weather <-  bind_rows(solar_weather,forecast))
+
+ggplot(data=solar_weather, aes(datetime,`Energy Produced (kWh)`)) +
+  geom_point(aes(group=type, color=type)) + 
+  #geom_smooth(span=.4) +
+  xlab("Date") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  ggtitle("Residential Solar System (15.5 kW)") 
+
+
+```
+
+GitHub
+- omit raw files (done with httr)
+
+Hook up to forecast API
+Historical API 
+- 1000 calls free/day
+Password secrets
+
+Shiny Dashboard
+
+Blog Post
+
+Enphase API? 
+
+Explore predictive relationship further
+- sides of house, number of panels, angle of panels
+Forecast quality/inconsistencies between Precip amount and coverage -> solarenergy
+
+

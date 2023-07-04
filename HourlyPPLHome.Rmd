@@ -1,0 +1,168 @@
+---
+title: "Hourly PPL Data - Home"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+
+```
+
+
+```{r}
+
+hourly1 <- read_excel("Hourly Usage 220326 to 220624.xlsx")
+hourly2 <- read_excel("Hourly Usage 220625 to 230623.xlsx")
+
+hourly1
+hourly2
+
+(hourly <- rbind(hourly1,hourly2))
+
+
+```
+
+```{r}
+hourly_pivot <- hourly %>% 
+  pivot_longer(!c("Account Number", "Meter Number", Date, "Read Type", Min, Max, Total), names_to = "Time", values_to = "kWh") 
+
+#rm(hourly_pivot)
+
+hourly_pivot <- hourly_pivot %>% 
+  mutate(Time = parse_time(Time, '%H:%M %p'), month = month(Date, label=TRUE), year = year(Date), yday = yday(Date), wday = wday(Date, label=TRUE))
+
+hourly_delivered <- hourly_pivot %>% 
+  filter(`Read Type` == "Delivered Usage kWh") 
+
+(hourly_delivered_presolar <- hourly_delivered %>% 
+  filter(Date <= "2022-04-14")
+)
+
+```
+
+```{r}
+
+ggplot(hourly_delivered_presolar, aes(Time, kWh)) +
+  geom_point() +
+  ggtitle("March 26 - April 14, 2022") +
+  xlab("Energy Delivered (kWh)")
+
+```
+
+```{r}
+
+hourly_net_solar <- hourly_pivot %>% 
+  filter(`Read Type` == "kWh Net" & Date > "2022-04-15") 
+
+ggplot(hourly_net_solar, aes(Time, kWh)) +
+  geom_point() +
+  geom_smooth()
+
+
+```
+
+```{r}
+
+hourly_net_presolar <- hourly_pivot %>% 
+  filter(`Read Type` == "kWh Net" & Date < "2022-04-14") 
+
+ggplot(hourly_net_presolar, aes(Time, kWh)) +
+  geom_point() +
+  geom_smooth() +
+  ggtitle("March 26 - April 14, 2022") +
+  ylab("Energy Delivered (kWh)")
+
+wday_hourly_net_presolar <- hourly_net_presolar %>% 
+  group_by(wday, Time) %>% 
+  summarize(kWhTotal = sum(kWh))
+
+ggplot(hourly_net_presolar, aes(Time, kWh, group=wday, color=wday)) +
+  geom_point() +
+  geom_smooth() +
+  ggtitle("March 26 - April 14, 2022")
+
+timeOfDay_presolar <- hourly_net_presolar %>% 
+  group_by(Time) %>% 
+  summarize(kWh_avg = mean(kWh))
+
+ggplot(timeOfDay_presolar, aes(Time, kWh_avg)) +
+  geom_point() +
+  ggtitle("March 26 - April 14, 2022") +
+  ylab("Average Energy Delivered (kWh)")
+
+```
+
+
+
+
+```{r}
+
+(hourly_by_date <- hourly_pivot %>% 
+  group_by(Date, `Read Type`) %>% 
+  summarize(kWh = sum(kWh))
+)
+
+ggplot(hourly_by_date, aes(Date, kWh, group = `Read Type`, color = `Read Type`)) +
+  geom_point() +
+  geom_smooth(span = 0.2)
+
+```
+
+```{r}
+
+hourly_net_solar <- hourly_pivot %>% 
+  filter(`Read Type` == "kWh Net" & Date > "2022-04-16") 
+
+ggplot(hourly_net_solar, aes(Time, kWh)) +
+  geom_point() +
+  geom_smooth()
+
+timeOfDay_solar <- hourly_net_solar %>% 
+  group_by(Time) %>% 
+  summarize(kWh_avg = mean(kWh))
+
+ggplot(timeOfDay_solar, aes(Time, kWh_avg)) +
+  geom_point() +
+  ggtitle("April 16, 2022 - present") +
+  ylab("Net Energy Delivered (kWh)")
+
+timeOfDay_month_solar <- hourly_net_solar %>% 
+  group_by(Time, month) %>% 
+  summarize(kWh_avg = mean(kWh))
+
+ggplot(timeOfDay_month_solar, aes(Time, kWh_avg, group=month, color=month)) +
+  geom_point() +
+  ggtitle("Net Energy Delivered by Time of Day") +
+  ylab("Net Energy Delivered (kWh)")
+
+```
+
+
+```{r}
+hourly <- hourly %>% 
+  #filter(`Read Type` == "kWh Net") %>% 
+  mutate(month = month(Date, label=TRUE), year = year(Date), yday = yday(Date), wday = wday(Date, label=TRUE)) 
+
+hourly %>% 
+  group_by(`Read Type`, month, year) %>% 
+  summarize(kWh = sum(Total, na.rm = TRUE)) %>% 
+  arrange(year, month)
+
+net_by_date <- hourly %>% 
+  group_by(`Read Type`, Date) %>% 
+  summarize(kWh = sum(Total, na.rm = TRUE))
+
+write.csv(net_by_date, "net_energy_by_date_230701.csv")
+
+hourly %>% 
+  group_by(`Read Type`) %>% 
+  filter(Date > "2022-04-15" & Date <= "2023-04-15") %>% 
+  summarize(kWh = sum(Total, na.rm = TRUE))
+
+```
+
+
+I wish I had more of a record before solar! Or a production/consumption monitor!

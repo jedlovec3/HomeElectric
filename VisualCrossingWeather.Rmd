@@ -1,0 +1,22 @@
+---
+title: "Visual Crossing Weather Exploration"
+output: html_notebook
+---
+
+
+https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/retrievebulkdataset?&key=NLHH8TUY2MQ9LN39C47RBGHQM&taskId=22f6cbd5a8abcb3598dec8f6391641ee&zip=false
+
+```{r}
+weather_import <- read_csv("18078 2022-04-15 to 2023-07-01.csv")
+
+weather_import
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
