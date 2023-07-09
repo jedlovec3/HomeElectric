@@ -15,7 +15,7 @@ library(httr)
 ```{r}
 
 solar_import <- read_csv("2801736_system_energy_20220404_to_20230624.csv")
-solar_update <- read_csv("2801736_system_energy_20230625_to_20230701.csv")
+solar_update <- read_csv("2801736_custom_report.csv")
 solar_import <- solar_import %>% 
   bind_rows(solar_update)
 
@@ -48,7 +48,7 @@ ggplot(solarByDay, aes(Date, `Energy Produced (kWh)`)) +
 
 
 ```{r}
-#weather_import <- read_csv("18078 2022-04-15 to 2023-07-01.csv")
+weather_import <- read_csv("18078 2022-04-15 to 2023-07-01.csv")
 
 #Get Visual Crossing API credentials from R environment
 api_email <- Sys.getenv("visualcrossing_email")
@@ -57,7 +57,7 @@ api_key <- Sys.getenv("visualcrossing_key")
 #Construct API call
 api_base_call <- "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/"
 api_zip <- Sys.getenv("zip_code")
-start_date <- "2022-04-15"
+start_date <- "2023-07-02"
 end_date <- Sys.Date()
 api_params <- "?unitGroup=us&elements=datetime%2CdatetimeEpoch%2Ctempmax%2Ctempmin%2Ctemp%2Chumidity%2Cprecip%2Cprecipprob%2Cprecipcover%2Cpreciptype%2Csnow%2Csnowdepth%2Ccloudcover%2Cvisibility%2Csolarradiation%2Csolarenergy%2Cuvindex%2Csunrise%2Csunset&include=days&key="
 api_output <- "&contentType=csv"
@@ -66,7 +66,9 @@ api_call_history <- paste(api_base_call,api_zip,'/',start_date,'/',end_date,api_
 
 api_response_history = content(GET(api_call_history))
 
-(weather_import <- read_csv(api_response_history))
+weather_import_latest <- read_csv(api_response_history)
+
+(weather_import <- rbind(weather_import, weather_import_latest))
 
 ```
 
