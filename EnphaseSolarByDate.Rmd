@@ -79,14 +79,17 @@ https://www.visualcrossing.com/resources/documentation/weather-data/how-to-obtai
    mutate(daylight = as.numeric(sunset-sunrise,units="mins"), solarenergy_kWh = solarenergy/3.6, type = "Historical")
  )
 
-solar_weather %>% 
+solar_weather_corr <- solar_weather %>% 
   select(`Energy Produced (kWh)`,tempmax,humidity,precip,precipcover,snow,snowdepth,cloudcover,visibility,solarradiation,,solarenergy,uvindex,daylight) %>% 
   correlate()
+
+write_csv(solar_weather_corr, "solar_weather_corr.csv")
 
 ggplot(solar_weather, aes(solarenergy_kWh,`Energy Produced (kWh)`)) +
   geom_point() +
   geom_smooth(method="lm", formula = y ~ x + 0) +
-  stat_regline_equation(formula = y ~ x + 0)
+  #stat_regline_equation(formula = y ~ x + 0) +
+  xlab("Solar Energy Measured (kWh per square meter)") 
 
 ```
 
