@@ -15,7 +15,7 @@ library(httr)
 ```{r}
 
 solar_import <- read_csv("2801736_system_energy_20220404_to_20230624.csv")
-solar_update <- read_csv("2801736_custom_report.csv")
+solar_update <- read_csv("2801736_custom_report_230625_230914.csv")
 solar_import <- solar_import %>% 
   bind_rows(solar_update)
 
@@ -155,4 +155,5 @@ Explore predictive relationship further
 - sides of house, number of panels, angle of panels
 Forecast quality/inconsistencies between Precip amount and coverage -> solarenergy
 
-
+Tie demand and supply data
+Look at 15-minute intervals and demand response opportunities. 
