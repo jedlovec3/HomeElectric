@@ -15,7 +15,7 @@ library(httr)
 ```{r}
 
 solar_import <- read_csv("2801736_system_energy_20220404_to_20230624.csv")
-solar_update <- read_csv("2801736_custom_report_230625_230914.csv")
+solar_update <- read_csv("2801736_custom_report_230625_231122.csv")
 solar_import <- solar_import %>% 
   bind_rows(solar_update)
 
@@ -82,7 +82,7 @@ https://www.visualcrossing.com/resources/documentation/weather-data/how-to-obtai
  )
 
 solar_weather_corr <- solar_weather %>% 
-  select(`Energy Produced (kWh)`,tempmax,humidity,precip,precipcover,snow,snowdepth,cloudcover,visibility,solarradiation,,solarenergy,uvindex,daylight) %>% 
+  select(`Energy Produced (kWh)`,tempmax,humidity,precip,precipcover,snow,snowdepth,cloudcover,visibility,solarradiation,solarenergy,uvindex,daylight) %>% 
   correlate()
 
 write_csv(solar_weather_corr, "solar_weather_corr.csv")

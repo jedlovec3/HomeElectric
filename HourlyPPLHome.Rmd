@@ -14,13 +14,19 @@ library(lubridate)
 
 ```{r}
 
-hourly1 <- read_excel("Hourly Usage 220326 to 220624.xlsx")
-hourly2 <- read_excel("Hourly Usage 220625 to 230623.xlsx")
+col_datatypes <- c('numeric','numeric','date','text',rep('numeric',99))
+
+#?read_excel
+
+hourly1 <- read_excel("Hourly Usage 220326 to 220624.xlsx", col_types = col_datatypes)
+hourly2 <- read_excel("Hourly Usage 220625 to 230623.xlsx", col_types = col_datatypes)
+hourly3 <- read_excel("Hourly Usage 230624 to 231121.xlsx", col_types = col_datatypes)
 
 hourly1
 hourly2
+hourly3
 
-(hourly <- rbind(hourly1,hourly2))
+(hourly <- bind_rows(hourly1,list(hourly2,hourly3)))
 
 
 ```
@@ -120,9 +126,11 @@ ggplot(hourly_net_solar, aes(Time, kWh)) +
   geom_point() +
   geom_smooth()
 
+#hourly_net_solar %>% filter(hour(Time) == 2)
+
 timeOfDay_solar <- hourly_net_solar %>% 
   group_by(Time) %>% 
-  summarize(kWh_avg = mean(kWh))
+  summarize(kWh_avg = mean(kWh), na.rm=TRUE)
 
 ggplot(timeOfDay_solar, aes(Time, kWh_avg)) +
   geom_point() +
