@@ -1,0 +1,124 @@
+---
+title: "Hourly Electricity Consumption"
+output: html_notebook
+---
+
+Load packages
+```{r}
+library(tidyverse)
+library(lubridate)
+library(hms)
+library(googlesheets4)
+```
+
+```{r}
+
+#gs4_deauth()
+#ppl_15mins <- read_sheet("https://docs.google.com/spreadsheets/d/1uv5SBYklQ-bArCnWPVG1hOvKu3fpgD1sgU8bTZ8sR5o/edit?usp=sharing")
+#add column types
+
+
+col_datatypes <- c('numeric','numeric','date','text',rep('numeric',99))
+
+#?read_excel
+
+hourly1 <- read_excel("Hourly Usage 220326 to 220624.xlsx", col_types = col_datatypes)
+hourly2 <- read_excel("Hourly Usage 220625 to 230623.xlsx", col_types = col_datatypes)
+hourly3 <- read_excel("Hourly Usage 230624 to 231121.xlsx", col_types = col_datatypes)
+
+hourly1
+hourly2
+hourly3
+
+(ppl_15mins <- bind_rows(hourly1,list(hourly2,hourly3)))
+
+
+```
+
+```{r}
+hourly_ppl_pivot <- ppl_15mins %>% 
+  rename(date = Date) %>% 
+  pivot_longer(!c("Account Number", "Meter Number", date, "Read Type", Min, Max, Total), names_to = "time", values_to = "kWh") 
+
+#rm(hourly_pivot)
+
+hourly_ppl_pivot <- hourly_ppl_pivot %>% 
+  mutate(time = parse_time(time, '%H:%M %p'), month = month(date, label=TRUE), year = year(date), yday = yday(date), wday = wday(date, label=TRUE))
+
+(hourly_ppl_net <- hourly_ppl_pivot %>% 
+  filter(`Read Type` == "kWh Net"))
+```
+
+Import solar production from another notebook
+
+```{r}
+ggplot(hourly_production, aes(datetime, energy_produced_Wh)) +
+  geom_point()
+
+ggplot(hourly_production, aes(time, energy_produced_Wh)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_point()
+```
+
+```{r}
+ggplot(hourly_production, aes(datetime, energy_produced_Wh)) +
+  geom_point()
+
+ggplot(hourly_production, aes(time, energy_produced_Wh)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_point()
+```
+
+Net + Produced = Consumedggplot(hourly_production, aes(datetime, energy_produced_Wh)) +
+
+  geom_point()
+
+ggplot(hourly_production, aes(time, energy_produced_Wh)) +
+
+  theme(axis.text.x = element_text(angle = 90)) +
+
+  geom_point()
+```{r}
+
+# hourly_ppl_net <- hourly_ppl_net %>% mutate(date = as_date(date))
+
+# hourly_ppl_net %>% arrange(desc(date))
+# hourly_production %>% arrange(desc(date))
+
+
+(hourly_electricity <- hourly_ppl_net %>% 
+    inner_join(hourly_production, by = join_by(date,time))  %>% 
+    mutate(consumed_kWh = kWh + energy_produced_Wh/1000, produced_kWh = energy_produced_Wh/1000)  %>% 
+    rename(net_kWh = kWh) %>% 
+    select(datetime, date, time, net_kWh, produced_kWh, consumed_kWh))
+
+```
+
+```{r}
+ggplot(hourly_electricity, aes(x=time)) +
+  geom_point(aes(y=consumed_kWh,color="red")) 
+
+ggplot(hourly_electricity, aes(x=datetime)) +
+  geom_point(aes(y=consumed_kWh,color="red")) 
+```
+
+
+
+
+Bring in Enphase energy production
+```{r}
+
+```
+
+Bring in PPL net energy usage
+```{r}
+
+```
+
+Calculate consumption
+```{r}
+
+```
+
+
+
