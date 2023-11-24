@@ -1,0 +1,105 @@
+---
+title: "Home Electricity Emissions Data"
+output: html_notebook
+---
+
+Use tibbles created in "WattTimeMOERData" and "Hourly Electricity Consumption" notebooks
+```{r}
+hourly_electricity 
+moer
+
+hourly_electricity %>% 
+  summarize(min_time = min(datetime), max_time = max(datetime))
+
+moer %>% 
+  summarize(min_time = min(timestamp), max_time = max(timestamp))
+
+```
+
+NOTE: MOER data from CAISO_NORTH (free) from WattTime as proxy for PJM data
+
+Check time zone alignment - believe that everything is in local time
+
+Join tables
+
+MOER is lbs/MWh
+Convert to kg/kWh? 
+1 lbs = 0.45 kg
+```{r}
+hourly_emissions <- hourly_electricity %>% 
+  inner_join(moer, by = join_by(datetime == local_timestamp)) %>% 
+  select(datetime, net_kWh, produced_kWh, consumed_kWh, MOER) %>% 
+  mutate(moer_kg_kWh = MOER*0.45/1000) %>% 
+  mutate(net_emissions_co2_kg = moer_kg_kWh*net_kWh, produced_emissions_co2_kg = moer_kg_kWh*produced_kWh, consumed_emissions_co2_kg = moer_kg_kWh*consumed_kWh) %>% 
+  arrange(datetime)
+
+hourly_emissions %>% 
+  summarize(min_time = min(datetime), max_time = max(datetime))
+
+hourly_emissions
+```
+
+Net energy and emissions over this time period
+```{r}
+
+hourly_emissions %>% 
+  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_emissions_co2_kg = sum(net_emissions_co2_kg), produced_emissions_co2_kg = sum(produced_emissions_co2_kg), consumed_emissions_co2_kg = sum(consumed_emissions_co2_kg)) %>% 
+  mutate(pct_reduction = 1 - (consumed_emissions_co2_kg - produced_emissions_co2_kg)/consumed_emissions_co2_kg)
+
+```
+
+```{r}
+
+emissions_date <- hourly_emissions %>% 
+  mutate(date = date(datetime)) %>% 
+  group_by(date) %>% 
+  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_emissions_co2_kg = sum(net_emissions_co2_kg), produced_emissions_co2_kg = sum(produced_emissions_co2_kg), consumed_emissions_co2_kg = sum(consumed_emissions_co2_kg)) %>% 
+  mutate(pct_reduction = 1 - (consumed_emissions_co2_kg - produced_emissions_co2_kg)/consumed_emissions_co2_kg)
+
+emissions_date
+
+ggplot(emissions_date, aes(date,net_emissions_co2_kg)) +
+  geom_point() 
+
+```
+
+Need to fix monthyear
+
+```{r}
+
+emissions_month <- hourly_emissions %>% 
+  mutate(monthyear = paste(year(datetime),"-",months(datetime), sep = "")) %>% 
+  group_by(monthyear) %>% 
+  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_emissions_co2_kg = sum(net_emissions_co2_kg), produced_emissions_co2_kg = sum(produced_emissions_co2_kg), consumed_emissions_co2_kg = sum(consumed_emissions_co2_kg)) %>% 
+  mutate(pct_reduction = 1 - (consumed_emissions_co2_kg - produced_emissions_co2_kg)/consumed_emissions_co2_kg)
+
+emissions_month
+
+ggplot(emissions_month, aes(monthyear,net_emissions_co2_kg)) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1)) 
+```
+
+
+```{r}
+
+hourly_emissions_365 <- hourly_emissions %>% 
+  filter(datetime >= as.POSIXct('11/01/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) & datetime < as.POSIXct('11/01/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()))
+
+
+hourly_emissions_365 %>% 
+  summarize(days = n()/24/4, net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_emissions_co2_kg = sum(net_emissions_co2_kg), produced_emissions_co2_kg = sum(produced_emissions_co2_kg), consumed_emissions_co2_kg = sum(consumed_emissions_co2_kg)) %>% 
+  mutate(pct_reduction = 1 - (consumed_emissions_co2_kg - produced_emissions_co2_kg)/consumed_emissions_co2_kg)
+
+
+```
+74% emissions reduction with solar panels based on CAISO NORTH MOER data
+- Would expect higher with PJM
+
+Wow, I was expecting consumption to exceed production since the electric car. 
+- Did efficiency gains (HVAC?) offset the car charging? 
+- Compare month 2022 (May, June, etc.) to month 2023 by time of day for consumption
+- Perhaps used less during the day and more when car charging at night? 
+- Temperature related (less HVAC required this year than last?)
+
+

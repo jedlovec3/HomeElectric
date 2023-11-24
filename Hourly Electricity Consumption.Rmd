@@ -9,7 +9,9 @@ library(tidyverse)
 library(lubridate)
 library(hms)
 library(googlesheets4)
+library(readxl)
 ```
+
 
 ```{r}
 
@@ -30,7 +32,9 @@ hourly1
 hourly2
 hourly3
 
-(ppl_15mins <- bind_rows(hourly1,list(hourly2,hourly3)))
+ppl_15mins <- bind_rows(hourly1,list(hourly2,hourly3))
+
+ppl_15mins %>% arrange(desc(Date), `Read Type`)
 
 
 ```
@@ -49,7 +53,7 @@ hourly_ppl_pivot <- hourly_ppl_pivot %>%
   filter(`Read Type` == "kWh Net"))
 ```
 
-Import solar production from another notebook
+Import solar production from another notebook (EnphaseHourly.Rmd)
 
 ```{r}
 ggplot(hourly_production, aes(datetime, energy_produced_Wh)) +
@@ -82,8 +86,8 @@ ggplot(hourly_production, aes(time, energy_produced_Wh)) +
 
 # hourly_ppl_net <- hourly_ppl_net %>% mutate(date = as_date(date))
 
-# hourly_ppl_net %>% arrange(desc(date))
-# hourly_production %>% arrange(desc(date))
+hourly_ppl_net %>% arrange(desc(date))
+hourly_production %>% arrange(desc(date))
 
 
 (hourly_electricity <- hourly_ppl_net %>% 
@@ -103,22 +107,6 @@ ggplot(hourly_electricity, aes(x=datetime)) +
 ```
 
 
-
-
-Bring in Enphase energy production
-```{r}
-
-```
-
-Bring in PPL net energy usage
-```{r}
-
-```
-
-Calculate consumption
-```{r}
-
-```
 
 
 

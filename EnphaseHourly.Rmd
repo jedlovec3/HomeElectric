@@ -12,12 +12,25 @@ library(hms)
 
 ```{r}
 import <- read_csv("enphase_history_230701.csv")
+update <- read_csv("hourly_generation_230625_231122.csv")
 
-(hourly_production <- import %>% 
+update <- update %>% 
+  mutate(`Date/Time` = as.POSIXct(`Date/Time`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
+  filter(`Date/Time` >= as.POSIXct('07/01/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) )
+
+import <- import %>% 
+  mutate(`Date/Time` = as.POSIXct(`Date/Time`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) 
+
+full_hist <- rbind(import,update)
+
+full_hist %>% arrange(desc(`Date/Time`))
+
+(hourly_production <- full_hist %>% 
   rename(datetime = `Date/Time`, energy_produced_Wh = `Energy Produced (Wh)`) %>% 
   mutate(datetime = as.POSIXct(datetime,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
   mutate(date = date(datetime), time = as.hms(format(datetime, format = "%H:%M:%S")), month = month(datetime, label=TRUE), year = year(datetime), day = day(datetime), yday = yday(datetime), monthday = format(datetime, "%m-%d"), wday = wday(datetime, label=TRUE), equinox_day = (yday + 10) %% 365, equinox_group = floor((equinox_day+15)/30)*30)
 )
+
 ```
 
 

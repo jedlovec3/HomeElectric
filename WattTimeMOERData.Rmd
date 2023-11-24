@@ -1,0 +1,106 @@
+---
+title: "WattTime Historical Grid Emissions"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(httr2)
+library(jsonlite)
+library(lubridate)
+library(hms)
+```
+
+
+Login and obtain token
+```{r}
+
+watttime_pw <- Sys.getenv("watttime_pw")
+
+req <- request('https://api2.watttime.org/v2/login') %>% 
+  req_auth_basic("jedlovec3", watttime_pw)
+
+resp <- req_perform(req)
+resp_json <- resp %>% resp_body_json()
+data_df <- as.data.frame(resp_json)
+data_df
+
+api_token <- data_df$token
+
+api_token
+```
+
+
+Request historical data
+```{r}
+
+req <- request('https://api2.watttime.org/v2/historical') %>% 
+  req_headers(Authorization = paste("Bearer", api_token)) %>% 
+  req_url_query('ba' = 'CAISO_NORTH')
+
+resp <- req_perform(req, path = '~/WattTime/caiso_north_hist.zip')
+
+unzip("caiso_north_hist.zip")
+
+```
+
+Read CSVs and combine into one object
+```{r}
+
+list_files <- list.files("caiso_north_hist/", full.names = TRUE)
+moer <- readr::read_csv(list_files, id = "file_name")
+
+moer %>% arrange(file_name)
+
+#write_csv(moer, "moer_caiso_north_hist.csv")
+
+```
+
+```{r}
+moer <- moer %>% 
+  mutate(ba = str_sub(file_name, 19), local_timestamp = with_tz(force_tz(timestamp,"GMT"),"America/Los_Angeles"))
+
+iso <- as.data.frame(str_split_fixed(moer$ba, "_", n = 3))
+
+moer <- moer %>% 
+  mutate(ba = paste(iso$V1,"-",iso$V2, sep = ""), year = as.factor(year(local_timestamp)), month = month(local_timestamp), day = day(local_timestamp), monthday = format(local_timestamp, "%m-%d"), local_time = as.hms(format(local_timestamp, format = "%H:%M:%S")), date = date(local_timestamp))
+
+moer
+
+```
+
+```{r}
+moer_noon <- moer %>% filter(format(local_timestamp, format = "%H:%M:%S") == '12:00:00')
+
+moer_june1 <- moer %>% filter(monthday == '06-01')
+
+```
+
+
+```{r}
+moer_230601 <- moer %>% filter(monthday == '06-01' & year == 2023)
+
+ggplot(moer_230601, aes(local_time, MOER)) +
+  geom_point() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1)) 
+
+```
+
+Plot years and months
+```{r}
+ggplot(moer_noon, aes(monthday, MOER, group=year, color=year)) +
+  geom_point() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1)) 
+
+ggplot(moer_june1, aes(local_time, MOER, group=year, color=year)) +
+  geom_point()
+
+```
+
+
+```{r}
+
+```
+
+
+
