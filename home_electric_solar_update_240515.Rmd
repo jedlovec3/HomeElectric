@@ -1,0 +1,282 @@
+---
+title: "Electricity/Solar Update"
+output: html_notebook
+---
+
+A look at the latest Jedlovec House eletricity usage and solar production from PPL and Enphase.
+
+Load packages
+```{r}
+library(tidyverse)
+library(lubridate)
+library(hms)
+library(readxl)
+library(onlineBcp)
+```
+
+Load PPL data
+```{r}
+
+col_datatypes <- c('numeric','numeric','date','text',rep('numeric',99))
+
+hourly1 <- read_excel("Hourly Usage 220326 to 220624.xlsx", col_types = col_datatypes)
+hourly2 <- read_excel("Hourly Usage 220625 to 230623.xlsx", col_types = col_datatypes)
+hourly3 <- read_excel("PPL 230624 to 240509.xlsx", col_types = col_datatypes)
+
+#hourly1
+#hourly2
+#hourly3
+
+ppl_15mins <- bind_rows(hourly1,list(hourly2,hourly3))
+
+ppl_15mins %>% arrange(desc(Date), `Read Type`)
+
+
+```
+
+Transform PPL Data
+```{r}
+
+hourly_ppl_pivot <- ppl_15mins %>% 
+  rename(date = Date) %>% 
+  pivot_longer(!c("Account Number", "Meter Number", date, "Read Type", Min, Max, Total), names_to = "time", values_to = "kWh") 
+
+rename(ppl_15mins, date = Date)
+
+hourly_ppl_pivot <- hourly_ppl_pivot %>% 
+  mutate(time = parse_time(time, '%H:%M %p'), month = month(date, label=TRUE), year = year(date), yday = yday(date), wday = wday(date, label=TRUE))
+
+(hourly_ppl_net <- hourly_ppl_pivot %>% 
+  filter(`Read Type` == "kWh Net"))
+```
+
+Load Enphase data
+```{r}
+import <- read_csv("enphase_history_230701.csv")
+update <- read_csv("hourly_generation_230625_240510.csv")
+
+update <- update %>% 
+  mutate(`Date/Time` = as.POSIXct(`Date/Time`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
+  filter(`Date/Time` >= as.POSIXct('07/01/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) )
+
+import <- import %>% 
+  mutate(`Date/Time` = as.POSIXct(`Date/Time`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) 
+
+full_hist <- rbind(import,update)
+
+full_hist %>% arrange(desc(`Date/Time`))
+
+(hourly_production <- full_hist %>% 
+  rename(datetime = `Date/Time`, energy_produced_Wh = `Energy Produced (Wh)`) %>% 
+  mutate(datetime = as.POSIXct(datetime,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
+  mutate(date = date(datetime), time = as.hms(format(datetime, format = "%H:%M:%S")), month = month(datetime, label=TRUE), year = year(datetime), day = day(datetime), yday = yday(datetime), monthday = format(datetime, "%m-%d"), wday = wday(datetime, label=TRUE), equinox_day = (yday + 10) %% 365, equinox_group = floor((equinox_day+15)/30)*30)
+)
+
+```
+
+Spot-check Enphase
+Should see lifetime production by day and by hour
+```{r}
+ggplot(hourly_production, aes(datetime, energy_produced_Wh)) +
+  geom_point()
+
+ggplot(hourly_production, aes(time, energy_produced_Wh)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_point()
+
+```
+
+Net + Produced = Consumed
+
+```{r}
+# hourly_ppl_net <- hourly_ppl_net %>% mutate(date = as_date(date))
+
+#hourly_ppl_net %>% arrange(desc(date))
+#hourly_production %>% arrange(desc(date))
+
+(hourly_electricity <- hourly_ppl_net %>% 
+    inner_join(hourly_production, by = join_by(date,time))  %>% 
+    mutate(consumed_kWh = kWh + energy_produced_Wh/1000, produced_kWh = energy_produced_Wh/1000)  %>% 
+    rename(net_kWh = kWh) %>% 
+    select(datetime, date, time, net_kWh, produced_kWh, consumed_kWh) %>%
+    arrange(date))
+
+```
+
+Calculate production for first year of solar panels, second year, etc.
+
+```{r}
+
+hourly_electricity <- hourly_electricity %>% 
+  mutate(solar_year = factor(case_when(
+                        datetime < as.POSIXct('04/16/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ~ 0,
+                        datetime >= as.POSIXct('04/16/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone())  &
+                          datetime < as.POSIXct('04/16/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ~ 1,
+                        datetime >= as.POSIXct('04/16/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone())  &
+                          datetime < as.POSIXct('04/16/2024 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ~ 2,
+                        TRUE ~ 3)
+         )) %>% 
+  mutate(yday = yday(date))
+
+hourly_electricity %>% 
+  group_by(solar_year) %>% 
+  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh))
+
+```
+
+Interesting! Produced kWh went down by 5%, but consumed kWh went down by 10% despite the fact that we got an electric car! Let's explore that further. 
+
+```{r}
+daily_electricity <- hourly_electricity %>% 
+  group_by(solar_year, yday) %>% 
+  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh))
+
+ggplot(daily_electricity, aes(yday, consumed_kWh, group=solar_year, color=solar_year)) + 
+  geom_point() +
+  geom_smooth(span=0.3) +
+  scale_x_continuous(breaks = c(1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335), labels = month.abb) +
+  theme(axis.text.x = element_text(angle = 90)) 
+
+```
+
+
+```{r}
+daily_electricity <- hourly_electricity %>% 
+  mutate(solar_day = interval(as_date(as.POSIXct('04/15/2022',format="%m/%d/%Y",tz=Sys.timezone())),as_date(date)) / days(1) 
+         ) %>% 
+  group_by(date, solar_day) %>% 
+  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh))
+
+ggplot(daily_electricity, aes(date, consumed_kWh)) + 
+  geom_point() +
+  #scale_x_continuous(breaks = c(1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335), labels = month.abb) +
+  theme(axis.text.x = element_text(angle = 90)) 
+
+
+```
+Look how our electricity consumption got much less predictable, more uneven, after we purchased an EV and installed a level 2 charger in late January/early February 2023!
+
+We probably need to filter out the EV charging and compare that separately. 
+
+
+```{r}
+
+#hourly_electricity %>% summarize(min_date = min(date), max_date = max(date))
+
+electricity_by_time <- hourly_electricity %>% 
+  filter(solar_year == 1 | solar_year == 2) %>% 
+  #filter(date <= as.POSIXct('12/31/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ) %>% 
+  group_by(time, solar_year) %>% 
+  summarize(produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh), net_kWh = mean(net_kWh)) %>% 
+  arrange(time)
+
+electricity_by_time
+
+ggplot(electricity_by_time, aes(x=time, y=consumed_kWh, group=solar_year, color=solar_year)) +
+  geom_point() 
+  #labs(colour="",x="Time of Day",y="Electricity Consumption (kWh)")+
+  #scale_color_manual(values = c("red","black","green")) +
+  #ggtitle("Home Electricity in 15-Minute Intervals (Since April 15, 2022)")
+
+```
+Wow, look how much less was used during the day in year 2!!! Like a 50% reduction! 
+
+Is this due to milder weather? 
+
+Let's look at it by month: 
+
+```{r}
+#electricity_by_month <- 
+hourly_electricity %>% 
+  mutate(month = month(date)) %>% 
+  group_by(solar_year, month) %>% 
+  summarize(consumed_kWh = mean(consumed_kWh)) %>% 
+  arrange(month, solar_year) %>% 
+  pivot_wider(names_from = month, values_from = consumed_kWh) %>% 
+  arrange(solar_year)
+
+#Look at limited window during day (no EV charging)
+ 
+# hourly_electricity %>% 
+#   filter(time == '12:00:00') %>% 
+#   #filter(time > as.POSIXct('04:00:00',format="%H:%M:$s",tz=Sys.timezone()) ) %>%  #& time < as.POSIXct('18:00',format="%H:%M",tz=Sys.timezone())) %>% 
+#   mutate(month = month(date)) %>% 
+#   group_by(solar_year, month) %>% 
+#   summarize(consumed_kWh = mean(consumed_kWh)) %>% 
+#   arrange(month, solar_year) %>% 
+#   pivot_wider(names_from = month, values_from = consumed_kWh) %>% 
+#   arrange(solar_year)
+
+
+```
+
+Look at specific months
+
+```{r}
+electricity_by_month_time <- hourly_electricity %>% 
+  mutate(month = as_factor(month(date))) %>% 
+  filter(solar_year == 1 | solar_year == 2) %>% 
+  filter(month == 10) %>% 
+  group_by(solar_year, month, time) %>% 
+  summarize(produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh), net_kWh = mean(net_kWh)) %>% 
+  arrange(solar_year, month, time)
+
+ggplot(electricity_by_month_time, aes(time, consumed_kWh, group=solar_year, color=solar_year)) +
+  #facet_grid(rows = vars(month)) +
+  geom_point(size=0.5) +
+  ggtitle("Home Electricity in 15-Minute Intervals") +
+  ylab("Electricity Consumption (kWh)")
+
+```
+
+Example day with EV charging
+
+```{r}
+sample_day <- hourly_electricity %>% 
+  filter(solar_year == 1 | solar_year == 2) %>% 
+  filter(yday == 157) %>% 
+  group_by(date, solar_year, yday, time) %>% 
+  summarize(produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh), net_kWh = mean(net_kWh)) %>% 
+  arrange(date, solar_year, yday, time)
+
+ggplot(sample_day, aes(time, consumed_kWh, group=solar_year, color=solar_year)) +
+  #facet_grid(rows = vars(month)) +
+  geom_point(size=0.5) +
+  ggtitle("Home Electricity in 15-Minute Intervals") +
+  ylab("Electricity Consumption (kWh)")
+
+```
+
+Ok, let's detect and remove EV charging sessions. 
+
+```{r}
+# library(onlineBcp)
+x <- c(rnorm(10, 0, 1), rnorm(10, 5, 1))
+bcp <- online_cp(x)
+summary(bcp)
+
+bcp
+
+```
+
+```{r}
+# library(onlineBcp)
+x <- sample_day %>% 
+  filter(solar_year == 2) %>% 
+  ungroup() %>% 
+  select(consumed_kWh)
+
+bcp <- online_cp(x)
+
+summary(bcp)
+
+bcp
+
+ggplot(sample_day, aes(time, consumed_kWh, group=solar_year, color=solar_year)) +
+  #facet_grid(rows = vars(month)) +
+  geom_point(size=0.5) +
+  ggtitle("Home Electricity in 15-Minute Intervals") +
+  ylab("Electricity Consumption (kWh)")
+```
+
+

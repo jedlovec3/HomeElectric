@@ -39,10 +39,17 @@ ppl_15mins %>% arrange(desc(Date), `Read Type`)
 
 ```
 
+
 ```{r}
+#ppl_15mins <- ppl_15mins %>% rename(date = Date)
+
 hourly_ppl_pivot <- ppl_15mins %>% 
   rename(date = Date) %>% 
   pivot_longer(!c("Account Number", "Meter Number", date, "Read Type", Min, Max, Total), names_to = "time", values_to = "kWh") 
+
+#ppl_15mins %>%  mutate(date = as_date(Date)) 
+
+rename(ppl_15mins, date = Date)
 
 #rm(hourly_pivot)
 
@@ -106,6 +113,61 @@ ggplot(hourly_electricity, aes(x=datetime)) +
   geom_point(aes(y=consumed_kWh,color="red")) 
 ```
 
+```{r}
+
+hourly_electricity %>% summarize(min_date = min(date), max_date = max(date))
+
+electricity_by_time <- hourly_electricity %>% 
+  filter(date <= as.POSIXct('12/31/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ) %>% 
+  group_by(time) %>% 
+  summarize(produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh), net_kWh = mean(net_kWh)) %>% 
+  arrange(time)
+
+electricity_by_time
+
+ggplot(electricity_by_time, aes(x=time)) +
+  geom_point(aes(y=consumed_kWh, color="Consumed")) +
+  geom_point(aes(y=net_kWh, color="Net")) +
+  geom_point(aes(y=produced_kWh*-1, color="Produced")) +
+  labs(colour="",x="Time of Day",y="Electricity Consumption (kWh)")+
+  scale_color_manual(values = c("red","black","green")) +
+  ggtitle("Home Electricity in 15-Minute Intervals (Apr 15 - Dec 31, 2022)")
+
+```
+
+
+```{r}
+electricity_by_month_time <- hourly_electricity %>% 
+  mutate(month = as_factor(month(date))) %>% 
+  filter(date <= as.POSIXct('12/31/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ) %>% 
+  group_by(month, time) %>% 
+  summarize(produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh), net_kWh = mean(net_kWh)) %>% 
+  arrange(month, time)
+
+ggplot(electricity_by_month_time, aes(time, consumed_kWh, group=month, color=month)) +
+  geom_point() +
+  ggtitle("Home Electricity in 15-Minute Intervals (Apr 15 - Dec 31, 2022)") +
+  ylab("Net Electricity Consumption (kWh)")
+
+
+```
+
+Example day with EV charging
+
+```{r}
+#hourly_electricity
+
+march23 <- hourly_electricity %>% 
+  filter(date >= "2023-04-01" & date < "2023-04-06")
+
+ggplot(march23) +
+  geom_point(aes(datetime,net_kWh))
+
+
+ggplot(march23) +
+  geom_point(aes(time,net_kWh, color = factor(date)))
+
+```
 
 
 

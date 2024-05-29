@@ -78,7 +78,7 @@ moer_june1 <- moer %>% filter(monthday == '06-01')
 
 
 ```{r}
-moer_230601 <- moer %>% filter(monthday == '06-01' & year == 2023)
+moer_230601 <- moer %>% filter(monthday == '06-20' & year == 2023)
 
 ggplot(moer_230601, aes(local_time, MOER)) +
   geom_point() + 

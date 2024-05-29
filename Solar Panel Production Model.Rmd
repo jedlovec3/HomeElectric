@@ -1,0 +1,159 @@
+---
+title: "Solar Panel Production Model (copy of .md)"
+output: html_notebook
+---
+
+Load libraries
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+library(httr)
+library(corrr)
+library(ggpubr)
+library(tidymodels)
+```
+
+Import, combine, and format chunks of historical data
+```{r}
+#import <- read_csv("enphase_history_230701.csv")
+#update <- read_csv("hourly_generation_230625_231122.csv")
+
+solar_import <- read_csv("enphase_history_230701.csv", show_col_types = FALSE)
+solar_update <- read_csv("hourly_generation_230625_231122.csv", show_col_types = FALSE)
+solar_import <- solar_import %>% 
+  bind_rows(solar_update)
+
+(solarByDay <- solar_import %>% 
+  rename(Date = `Date/Time`) %>% 
+  mutate(Date = as.Date(Date, '%m/%d/%Y'), `Energy Produced (kWh)` = `Energy Produced (Wh)`/1000) %>% 
+  filter(Date > "2022-04-14")
+)
+```
+
+```{r}
+
+import <- read_csv("enphase_history_230701.csv")
+update <- read_csv("hourly_generation_230625_231122.csv")
+
+update <- update %>% 
+  mutate(`Date/Time` = as.POSIXct(`Date/Time`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
+  filter(`Date/Time` >= as.POSIXct('07/01/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) )
+
+import <- import %>% 
+  mutate(`Date/Time` = as.POSIXct(`Date/Time`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) 
+
+full_hist <- rbind(import,update)
+
+full_hist %>% arrange(desc(`Date/Time`))
+
+(hourly_production <- full_hist %>% 
+  rename(datetime = `Date/Time`, energy_produced_Wh = `Energy Produced (Wh)`) %>% 
+  mutate(datetime = as.POSIXct(datetime,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
+  mutate(date = date(datetime), time = as.hms(format(datetime, format = "%H:%M:%S")), month = month(datetime, label=TRUE), year = year(datetime), day = day(datetime), yday = yday(datetime), monthday = format(datetime, "%m-%d"), wday = wday(datetime, label=TRUE), equinox_day = (yday + 10) %% 365, equinox_group = floor((equinox_day+15)/30)*30)
+)
+```
+
+```{r}
+
+solarByDay %>% 
+  filter(Date > "2022-04-15" & Date < "2023-04-16") %>% 
+  summarize(total = sum(`Energy Produced (kWh)`))
+
+```
+
+```{r}
+ggplot(solarByDay, aes(Date, `Energy Produced (kWh)`)) +
+  geom_point() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  ggtitle("Residential Solar System (15.5 kW)") + 
+  geom_smooth(span=.4, method = 'loess', formula = y ~ x) 
+
+```
+
+
+```{r}
+#Sys.setenv(visualcrossing_email = "ben.jedlovec@gmail.com")
+#Sys.setenv(visualcrossing_key = "NLHH8TUY2MQ9LN39C47RBGHQM") 
+#Sys.setenv(zip_code = "18078") 
+```
+
+```{r}
+#Sys.getenv("visualcrossing_email")
+#Sys.getenv("visualcrossing_key")
+#Sys.getenv("zip_code")
+```
+
+```{r}
+weather_import <- read_csv("18078 2022-04-15 to 2023-07-01.csv", show_col_types = FALSE)
+
+#Get Visual Crossing API credentials from R environment
+api_email <- Sys.getenv("visualcrossing_email")
+api_key <- Sys.getenv("visualcrossing_key")
+
+#Construct API call
+api_base_call <- "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/"
+api_zip <- Sys.getenv("zip_code")
+start_date <- "2023-07-02"
+end_date <- Sys.Date()
+api_params <- "?unitGroup=us&elements=datetime%2CdatetimeEpoch%2Ctempmax%2Ctempmin%2Ctemp%2Chumidity%2Cprecip%2Cprecipprob%2Cprecipcover%2Cpreciptype%2Csnow%2Csnowdepth%2Ccloudcover%2Cvisibility%2Csolarradiation%2Csolarenergy%2Cuvindex%2Csunrise%2Csunset&include=days&key="
+api_output <- "&contentType=csv"
+
+api_call_history <- paste(api_base_call,api_zip,'/',start_date,'/',end_date,api_params,api_key,api_output, sep='')
+
+api_response_history = content(GET(api_call_history))
+
+weather_import_latest <- read_csv(api_response_history, show_col_types = FALSE)
+
+(weather_import <- rbind(weather_import, weather_import_latest))
+```
+
+
+
+```{r}
+
+solarproduction_model <- linear_reg() %>% 
+  fit(`Energy Produced (kWh)` ~ solarenergy_kWh + 0, data=solar_weather)
+
+tidy(solarproduction_model)
+```
+
+```{r}
+#import_forecast <- read_csv("18078_visualcrossing_forecast_15day_230702.csv")
+
+api_params_forecast <- "?unitGroup=us&elements=datetime%2CdatetimeEpoch%2Ctempmax%2Ctempmin%2Ctemp%2Chumidity%2Cprecip%2Cprecipprob%2Cprecipcover%2Cpreciptype%2Csnow%2Csnowdepth%2Ccloudcover%2Cvisibility%2Csolarradiation%2Csolarenergy%2Cuvindex%2Csunrise%2Csunset&include=days&key="
+
+api_call_forecast <- paste(api_base_call,api_zip,'/',api_params_forecast,api_key,api_output, sep='')
+
+api_response_forecast = content(GET(api_call_forecast))
+
+(import_forecast <- read_csv(api_response_forecast, show_col_types = FALSE))
+
+forecast <- import_forecast %>%  
+   mutate(daylight = as.numeric(sunset-sunrise,units="mins"), solarenergy_kWh = solarenergy/3.6, type = "Forecast")
+
+solar_forecast <- predict(solarproduction_model, new_data = forecast) 
+solar_forecast_ci <- predict(solarproduction_model, new_data = forecast, type="conf_int")
+
+#plot_data <- 
+forecast <- forecast %>% 
+  bind_cols(solar_forecast) %>% 
+  bind_cols(solar_forecast_ci) 
+
+forecast <- forecast %>% 
+  mutate(`Energy Produced (kWh)` = .pred, `Energy Produced (Wh)` = `Energy Produced (kWh)`*1000)
+
+forecast
+```
+
+```{r}
+(solar_weather <-  bind_rows(solar_weather,forecast))
+
+ggplot(data=solar_weather, aes(datetime,`Energy Produced (kWh)`)) +
+  geom_point(aes(group=type, color=type)) + 
+  #geom_smooth(span=.4) +
+  xlab("Date") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  ggtitle("Residential Solar System (15.5 kW)") 
+```

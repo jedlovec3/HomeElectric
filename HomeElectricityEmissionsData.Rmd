@@ -82,15 +82,27 @@ ggplot(emissions_month, aes(monthyear,net_emissions_co2_kg)) +
 
 
 ```{r}
-
 hourly_emissions_365 <- hourly_emissions %>% 
-  filter(datetime >= as.POSIXct('11/01/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) & datetime < as.POSIXct('11/01/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()))
+  filter(datetime >= as.POSIXct('04/16/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) & datetime < as.POSIXct('04/16/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()))
 
 
 hourly_emissions_365 %>% 
   summarize(days = n()/24/4, net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_emissions_co2_kg = sum(net_emissions_co2_kg), produced_emissions_co2_kg = sum(produced_emissions_co2_kg), consumed_emissions_co2_kg = sum(consumed_emissions_co2_kg)) %>% 
   mutate(pct_reduction = 1 - (consumed_emissions_co2_kg - produced_emissions_co2_kg)/consumed_emissions_co2_kg)
+```
 
+
+```{r}
+hourly_emissions_date <- hourly_emissions_365 %>% 
+  mutate(date = date(datetime)) %>% 
+  group_by(date) %>% 
+  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_emissions_co2_kg = sum(net_emissions_co2_kg), produced_emissions_co2_kg = sum(produced_emissions_co2_kg), consumed_emissions_co2_kg = sum(consumed_emissions_co2_kg)) %>% 
+  mutate(pct_reduction = 1 - (consumed_emissions_co2_kg - produced_emissions_co2_kg)/consumed_emissions_co2_kg)
+
+hourly_emissions_365_date
+
+ggplot(hourly_emissions_365_date, aes(date,net_emissions_co2_kg)) +
+  geom_point() 
 
 ```
 74% emissions reduction with solar panels based on CAISO NORTH MOER data
