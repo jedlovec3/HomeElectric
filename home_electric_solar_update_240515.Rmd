@@ -251,7 +251,7 @@ Ok, let's detect and remove EV charging sessions.
 
 ```{r}
 # library(onlineBcp)
-x <- c(rnorm(10, 0, 1), rnorm(10, 5, 1))
+x <- c(rnorm(10, 2.6, 0.2), rnorm(1, 2.6/2, 0.2) + rnorm(1, .2, .15), rnorm(86, .2, .15))
 bcp <- online_cp(x)
 summary(bcp)
 
@@ -261,10 +261,16 @@ bcp
 
 ```{r}
 # library(onlineBcp)
+
+#Filter data to feed to model
 x <- sample_day %>% 
   filter(solar_year == 2) %>% 
   ungroup() %>% 
   select(consumed_kWh)
+
+
+x <- x$consumed_kWh
+
 
 bcp <- online_cp(x)
 
@@ -272,11 +278,15 @@ summary(bcp)
 
 bcp
 
-ggplot(sample_day, aes(time, consumed_kWh, group=solar_year, color=solar_year)) +
-  #facet_grid(rows = vars(month)) +
-  geom_point(size=0.5) +
-  ggtitle("Home Electricity in 15-Minute Intervals") +
-  ylab("Electricity Consumption (kWh)")
+plot(summary(bcp))
+
+# ggplot(sample_day, aes(time, consumed_kWh, group=solar_year, color=solar_year)) +
+#   #facet_grid(rows = vars(month)) +
+#   geom_point(size=0.5) +
+#   ggtitle("Home Electricity in 15-Minute Intervals") +
+#   ylab("Electricity Consumption (kWh)")
+
+
 ```
 
 
