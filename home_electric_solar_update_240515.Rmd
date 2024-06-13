@@ -139,7 +139,7 @@ ggplot(daily_electricity, aes(yday, consumed_kWh, group=solar_year, color=solar_
 
 ```
 
-
+Daily totals
 ```{r}
 daily_electricity <- hourly_electricity %>% 
   mutate(solar_day = interval(as_date(as.POSIXct('04/15/2022',format="%m/%d/%Y",tz=Sys.timezone())),as_date(date)) / days(1) 
@@ -152,13 +152,15 @@ ggplot(daily_electricity, aes(date, consumed_kWh)) +
   #scale_x_continuous(breaks = c(1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335), labels = month.abb) +
   theme(axis.text.x = element_text(angle = 90)) 
 
-
+ 
 ```
 Look how our electricity consumption got much less predictable, more uneven, after we purchased an EV and installed a level 2 charger in late January/early February 2023!
 
+Also, a couple of outlier high points in Dec 2022 before we got the EV... hmm.
+
 We probably need to filter out the EV charging and compare that separately. 
 
-
+Average consumption based on time of day
 ```{r}
 
 #hourly_electricity %>% summarize(min_date = min(date), max_date = max(date))
@@ -216,7 +218,8 @@ Look at specific months
 electricity_by_month_time <- hourly_electricity %>% 
   mutate(month = as_factor(month(date))) %>% 
   filter(solar_year == 1 | solar_year == 2) %>% 
-  filter(month == 10) %>% 
+  #Sample month
+  filter(month == 6) %>% 
   group_by(solar_year, month, time) %>% 
   summarize(produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh), net_kWh = mean(net_kWh)) %>% 
   arrange(solar_year, month, time)
@@ -234,7 +237,7 @@ Example day with EV charging
 ```{r}
 sample_day <- hourly_electricity %>% 
   filter(solar_year == 1 | solar_year == 2) %>% 
-  filter(yday == 157) %>% 
+  filter(yday == 161) %>% 
   group_by(date, solar_year, yday, time) %>% 
   summarize(produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh), net_kWh = mean(net_kWh)) %>% 
   arrange(date, solar_year, yday, time)
@@ -249,6 +252,7 @@ ggplot(sample_day, aes(time, consumed_kWh, group=solar_year, color=solar_year)) 
 
 Ok, let's detect and remove EV charging sessions. 
 
+Bayesian change point example
 ```{r}
 # library(onlineBcp)
 x <- c(rnorm(10, 2.6, 0.2), rnorm(1, 2.6/2, 0.2) + rnorm(1, .2, .15), rnorm(86, .2, .15))
@@ -259,32 +263,152 @@ bcp
 
 ```
 
+Test on electricity consumption data
 ```{r}
 # library(onlineBcp)
 
-#Filter data to feed to model
-x <- sample_day %>% 
+#Select a sample to test
+sample <- hourly_electricity %>% 
+  mutate(solar_day = interval(as_date(as.POSIXct('04/15/2022',format="%m/%d/%Y",tz=Sys.timezone())),as_date(date)) / days(1) ) %>%
   filter(solar_year == 2) %>% 
+  filter(yday < 40 & yday > 35)
+
+ggplot(sample, aes(datetime, consumed_kWh, group=solar_year, color=solar_year)) +
+  #facet_grid(rows = vars(month)) +
+  geom_point(size=0.5) +
+  ggtitle("Home Electricity in 15-Minute Intervals") +
+  ylab("Electricity Consumption (kWh)")
+```
+
+
+```{r}
+min_time <- pull(sample %>% summarize(min_time = min(datetime)))
+
+sample <- sample %>% 
+  mutate(time_x = interval(min_time,datetime)/minutes(15)+1)
+
+#Filter data to feed to model
+x <- sample %>%  
   ungroup() %>% 
   select(consumed_kWh)
 
-
 x <- x$consumed_kWh
 
-
+#Run online Bayesian Change Point model 
+#"Online" means in progress, not retroactive
 bcp <- online_cp(x)
 
 summary(bcp)
 
-bcp
-
 plot(summary(bcp))
 
-# ggplot(sample_day, aes(time, consumed_kWh, group=solar_year, color=solar_year)) +
-#   #facet_grid(rows = vars(month)) +
-#   geom_point(size=0.5) +
-#   ggtitle("Home Electricity in 15-Minute Intervals") +
-#   ylab("Electricity Consumption (kWh)")
+```
+Not too bad! It picks up the EV charging sessions, but it also picks up some other, presumably HVAC-related consumption changes. It looks like I should be able to weed these out easily. 
+
+
+```{r}
+
+#Select a sample to test
+sample <- hourly_electricity %>% 
+  mutate(solar_day = interval(as_date(as.POSIXct('04/15/2022',format="%m/%d/%Y",tz=Sys.timezone())),as_date(date)) / days(1) ) %>%
+  filter(solar_year == 2)
+
+ggplot(sample, aes(datetime, consumed_kWh, group=solar_year, color=solar_year)) +
+  #facet_grid(rows = vars(month)) +
+  geom_point(size=0.5) +
+  ggtitle("Home Electricity in 15-Minute Intervals") +
+  ylab("Electricity Consumption (kWh)")
+```
+
+```{r}
+
+min_time <- pull(sample %>% summarize(min_time = min(datetime)))
+
+sample <- sample %>% 
+  mutate(time_x = interval(min_time,datetime)/minutes(15)+1)
+
+#Filter data to feed to model
+x <- sample %>%  
+  ungroup() %>% 
+  select(consumed_kWh)
+
+x <- x$consumed_kWh
+
+#Run online Bayesian Change Point model 
+#"Online" means in progress, not retroactive
+bcp <- online_cp(x)
+
+summary(bcp)
+
+plot(summary(bcp))
+```
+
+
+onlineBcp model seems to change efficacy when looking across different lengths of time. It works well on single days, but when looking at a week, it picks up noise from HVAC/other appliances, though still picking up the EV charging pretty well. When looking at longer periods, however, the EV charging intervals get lost in the noise.
+
+Also, the original bcp package for R was deprecated, leaving the best option as onlineBCP. 
+Maybe build a training data set with manually labeled EV charging intervals, then run a machine learning model on the rest of the data set? Use time series inputs. 
+
+Identify streaks of high electricity usage (2 kWh in 15 minute interval and 2 kWh in previous and/or next interval)
+```{r}
+sample <- sample %>% 
+  mutate(next_net = lead(consumed_kWh, order_by = datetime), prev_net = lag(consumed_kWh, order_by = datetime)) %>% 
+  #mutate(next2 = lead(consumed_kWh, order_by = datetime, n = 2L), next3 = lead(consumed_kWh, order_by = datetime, n = 3L)) %>% 
+  #mutate(nexthour_net = consumed_kWh + next_net + next2 + next3) %>% 
+  mutate(streak = case_when(consumed_kWh > 2 & (next_net > 2 | prev_net > 2) ~ 1)) %>% 
+  #mutate(streak_net = ) %>% 
+  #mutate(start_of_ev_charge = case_when(streak == 1 & is.na(lag(streak, order_by = datetime)) ~ datetime), #& nexthour_net >= 10000
+  #       end_of_ev_charge = case_when(streak == 1 & is.na(lead(streak, order_by = datetime)) ~ end), 
+  #       ev_charge_time = 0, ev_charge_net = 0, ev_charge_min = 0, ev_charge_max = 0, customer_id = customer_id) %>% 
+  arrange(datetime)
+
+sample
+```
+
+Now, look at length of streaks to identify charging sessions. (not finished)
+
+```{r eval=FALSE, include=FALSE}
+
+sample %>% 
+  mutate(start_of_streak = case_when(streak == 1 & lag()))
+
+
+```
+
+
+This doesn't work yet: 
+```{r eval=FALSE, include=FALSE}
+sample <- as.data.frame(sample)
+
+i <- 2
+while (i <= nrow(sample)) {
+  sample[i]$start_of_ev_charge <- case_when(sample[i]$streak == 1 & is.na(sample[i-1]$streak) ~ sample[i]$start_of_ev_charge, 
+                                       sample[i]$streak == 1 & !is.na(sample[i-1]$streak) ~ sample[i-1]$start_of_ev_charge)
+  sample[i]$ev_charge_time <- case_when(sample[i]$streak == 1 & is.na(sample[i-1]$streak) ~ 15, 
+                                       sample[i]$streak == 1 & !is.na(sample[i-1]$streak) ~ 15 + sample[i-1]$ev_charge_time)
+  sample[i]$ev_charge_net <- case_when(sample[i]$streak == 1 & is.na(sample[i-1]$streak) ~ sample[i]$net_electricity_consumption, 
+                                       sample[i]$streak == 1 & !is.na(sample[i-1]$streak) ~ sample[i]$net_electricity_consumption + sample[i-1]$ev_charge_net)
+  
+  sample[i]$ev_charge_min <- case_when(sample[i]$streak == 1 & is.na(sample[i-1]$streak) ~ sample[i]$net_electricity_consumption, 
+                                       sample[i]$streak == 1 & !is.na(sample[i-1]$streak) & sample[i]$net_electricity_consumption <= sample[i-1]$ev_charge_min ~ sample[i]$net_electricity_consumption, 
+                                       sample[i]$streak == 1 & !is.na(sample[i-1]$streak) & sample[i]$net_electricity_consumption > sample[i-1]$ev_charge_min ~ sample[i-1]$ev_charge_min )
+  
+  sample[i]$ev_charge_max <- case_when(sample[i]$streak == 1 & is.na(sample[i-1]$streak) ~ sample[i]$net_electricity_consumption, 
+                                       sample[i]$streak == 1 & !is.na(sample[i-1]$streak) & sample[i]$net_electricity_consumption >= sample[i-1]$ev_charge_max ~ sample[i]$net_electricity_consumption, 
+                                       sample[i]$streak == 1 & !is.na(sample[i-1]$streak) & sample[i]$net_electricity_consumption < sample[i-1]$ev_charge_max ~ sample[i-1]$ev_charge_max )
+  
+  i <- i + 1
+}
+
+#sample %>% 
+#  filter(streak == 1)
+
+#streaks<- sample %>% 
+streaks_ind <- sample %>% 
+  filter(!is.na(end_of_ev_charge)) %>% 
+  select(customer_id, start_of_ev_charge, end_of_ev_charge, ev_charge_min, ev_charge_max)
+
+streaks_ind
 
 
 ```

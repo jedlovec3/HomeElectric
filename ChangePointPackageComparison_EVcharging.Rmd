@@ -1,0 +1,35 @@
+---
+title: "Change Point Package Comparison"
+output: html_notebook
+---
+
+Piggybacks on home_electric_solar_update_240515.Rmd - run that first
+
+```{r}
+df <- sample %>% 
+  mutate(x = interval('2024-02-05 00:00:00',datetime)/minutes(15) - 19) %>% 
+  rename(y = consumed_kWh)
+
+ggplot(df, aes(x, y)) +
+  #facet_grid(rows = vars(month)) +
+  geom_point(size=0.5) +
+  ggtitle("Home Electricity in 15-Minute Intervals") +
+  ylab("Electricity Consumption (kWh)")
+```
+
+MCP
+```{r}
+library(mcp)
+
+model = list(y~1, 1~1, 1~1)  # three intercept-only segments
+fit_mcp = mcp(model, data = df, par_x = "x")
+
+summary(fit_mcp)
+
+```
+
+
+
+
+
+
