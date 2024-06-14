@@ -50,9 +50,9 @@ hourly_ppl_pivot <- hourly_ppl_pivot %>%
 
 ppl_net_export <- hourly_ppl_net %>% 
   select(date, `Read Type`, time, kWh) %>% 
-  arrange(date, time)
+  arrange(date, time) 
 
-write_csv(ppl_net_export, "ppl_net.csv")
+#write_csv(ppl_net_export, "ppl_net.csv")
 
 ```
 
