@@ -31,9 +31,6 @@ ppl_15mins <- bind_rows(hourly1,list(hourly2,hourly3))
 
 ppl_15mins %>% arrange(desc(Date), `Read Type`)
 
-#write_csv(ppl_15mins, "ppl_15mins.csv")
-
-
 ```
 
 Transform PPL Data
@@ -50,6 +47,13 @@ hourly_ppl_pivot <- hourly_ppl_pivot %>%
 
 (hourly_ppl_net <- hourly_ppl_pivot %>% 
   filter(`Read Type` == "kWh Net"))
+
+ppl_net_export <- hourly_ppl_net %>% 
+  select(date, `Read Type`, time, kWh) %>% 
+  arrange(date, time)
+
+write_csv(ppl_net_export, "ppl_net.csv")
+
 ```
 
 Load Enphase data
