@@ -31,6 +31,8 @@ ppl_15mins <- bind_rows(hourly1,list(hourly2,hourly3))
 
 ppl_15mins %>% arrange(desc(Date), `Read Type`)
 
+#write_csv(ppl_15mins, "ppl_15mins.csv")
+
 
 ```
 
