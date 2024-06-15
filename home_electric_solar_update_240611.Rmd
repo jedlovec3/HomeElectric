@@ -54,6 +54,7 @@ ppl_net_export <- hourly_ppl_net %>%
 
 #write_csv(ppl_net_export, "ppl_net.csv")
 
+
 ```
 
 Load Enphase data
@@ -108,6 +109,18 @@ Net + Produced = Consumed
     arrange(date))
 
 ```
+
+```{r}
+
+consumed_export <- hourly_electricity %>% 
+  mutate(kWh = consumed_kWh, `Read Type` = "kWh Consumed") %>% 
+  select(date, `Read Type`, time, kWh) %>% 
+  arrange(date, time) 
+
+write_csv(consumed_export, "consumed.csv")
+
+```
+
 
 Calculate production for first year of solar panels, second year, etc.
 
