@@ -93,7 +93,7 @@ hourly_emissions_365 %>%
 
 
 ```{r}
-hourly_emissions_date <- hourly_emissions_365 %>% 
+hourly_emissions_365_date <- hourly_emissions_365 %>% 
   mutate(date = date(datetime)) %>% 
   group_by(date) %>% 
   summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_emissions_co2_kg = sum(net_emissions_co2_kg), produced_emissions_co2_kg = sum(produced_emissions_co2_kg), consumed_emissions_co2_kg = sum(consumed_emissions_co2_kg)) %>% 
@@ -113,5 +113,24 @@ Wow, I was expecting consumption to exceed production since the electric car.
 - Compare month 2022 (May, June, etc.) to month 2023 by time of day for consumption
 - Perhaps used less during the day and more when car charging at night? 
 - Temperature related (less HVAC required this year than last?)
+
+----------
+Find windows of high emissions
+```{r}
+hourly_emissions %>% 
+  filter(year(datetime) == 2023 & month(datetime) == 2 & day(datetime) == 3) %>% 
+  arrange(datetime)
+
+hourly_emissions %>% 
+  arrange(desc(consumed_kWh))
+
+#sample <- 
+hourly_emissions %>% 
+  filter(date(datetime) == "2023-08-09")
+
+ggplot(hourly_emissions, aes(as_hms(datetime), MOER*0.45/1000*consumed_kWh)) +
+  geom_point()
+
+```
 
 

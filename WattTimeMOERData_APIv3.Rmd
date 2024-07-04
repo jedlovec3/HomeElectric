@@ -17,7 +17,7 @@ Login and obtain token
 
 watttime_pw <- Sys.getenv("watttime_pw")
 
-req <- request('https://api2.watttime.org/v2/login') %>% 
+req <- request('https://api2.watttime.org/v3/login') %>% 
   req_auth_basic("jedlovec3", watttime_pw)
 
 resp <- req_perform(req)

@@ -1,0 +1,33 @@
+---
+title: "Load Enphase Data"
+output: html_notebook
+---
+
+
+Load packages
+```{r}
+library(tidyverse)
+library(lubridate)
+library(hms)
+```
+
+
+Load Enphase data
+```{r}
+import <- read_csv("enphase_history_230701.csv")
+update <- read_csv("hourly_generation_230625_240510.csv")
+
+update <- update %>% 
+  mutate(`Date/Time` = as.POSIXct(`Date/Time`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
+  filter(`Date/Time` >= as.POSIXct('07/01/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) )
+
+import <- import %>% 
+  mutate(`Date/Time` = as.POSIXct(`Date/Time`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) 
+
+full_hist <- rbind(import,update)
+
+write.csv(full_hist, "enphase_production.csv")
+
+```
+
+

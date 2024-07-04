@@ -1,0 +1,60 @@
+---
+title: "Update PPL Electric Data to CSV"
+output: html_notebook
+---
+
+A look at the latest Jedlovec House eletricity usage and solar production from PPL and Enphase.
+
+Load packages
+```{r}
+library(tidyverse)
+library(lubridate)
+library(hms)
+library(readxl)
+```
+
+Load PPL data
+```{r}
+
+col_datatypes <- c('numeric','numeric','date','text',rep('numeric',99))
+
+hourly1 <- read_excel("Hourly Usage 220326 to 220624.xlsx", col_types = col_datatypes)
+hourly2 <- read_excel("Hourly Usage 220625 to 230623.xlsx", col_types = col_datatypes)
+hourly3 <- read_excel("PPL 230624 to 240509.xlsx", col_types = col_datatypes)
+hourly4 <- read_excel("PPL 240510 to 240613.xlsx", col_types = col_datatypes)
+
+#hourly1
+#hourly2
+#hourly3
+
+ppl_15mins <- bind_rows(hourly1,list(hourly2,hourly3,hourly4))
+
+ppl_15mins %>% arrange(desc(Date), `Read Type`)
+
+#write_csv(ppl_15mins, "ppl_15mins.csv")
+
+```
+
+
+Transform PPL Data
+```{r}
+
+hourly_ppl_pivot <- ppl_15mins %>% 
+  rename(date = Date) %>% 
+  pivot_longer(!c("Account Number", "Meter Number", date, "Read Type", Min, Max, Total), names_to = "time", values_to = "kWh") 
+
+rename(ppl_15mins, date = Date)
+
+hourly_ppl_pivot <- hourly_ppl_pivot %>% 
+  mutate(time = parse_time(time, '%H:%M %p'), month = month(date, label=TRUE), year = year(date), yday = yday(date), wday = wday(date, label=TRUE))
+
+hourly_ppl_pivot_export <- hourly_ppl_pivot %>% 
+  select(date, `Read Type`, time, kWh) %>% 
+  arrange(date, time) 
+
+write_csv(hourly_ppl_pivot_export, "ppl_15mins.csv")
+
+```
+
+
+
