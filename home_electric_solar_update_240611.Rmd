@@ -28,7 +28,7 @@ full_hist <- read_csv("enphase_production.csv")
 
 (hourly_production <- full_hist %>% 
   rename(datetime = `Date/Time`, energy_produced_Wh = `Energy Produced (Wh)`) %>% 
-  mutate(datetime = as.POSIXct(datetime,format="%m/%d/%Y %H:%M")) %>% 
+  mutate(datetime = as.POSIXct(datetime,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
   mutate(date = date(datetime), time = as.hms(format(datetime, format = "%H:%M:%S")), month = month(datetime, label=TRUE), year = year(datetime), day = day(datetime), yday = yday(datetime), monthday = format(datetime, "%m-%d"), wday = wday(datetime, label=TRUE), equinox_day = (yday + 10) %% 365, equinox_group = floor((equinox_day+15)/30)*30)
 )
 
@@ -63,63 +63,57 @@ Net + Produced = Consumed
 
 ```
 
-Export consumed data only
-```{r}
-consumed_export <- hourly_electricity %>% 
-  mutate(kWh = consumed_kWh, `Read Type` = "kWh Consumed") %>% 
-  select(date, `Read Type`, time, kWh) %>% 
-  arrange(date, time) 
-
-#write_csv(consumed_export, "consumed_15mins.csv")
-
-```
-
-
 Calculate production for first year of solar panels, second year, etc.
 ```{r}
 
 hourly_electricity <- hourly_electricity %>% 
-  mutate(solar_year = factor(case_when(
-                        datetime < as.POSIXct('04/16/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ~ 0,
-                        datetime >= as.POSIXct('04/16/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone())  &
-                          datetime < as.POSIXct('04/16/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ~ 1,
-                        datetime >= as.POSIXct('04/16/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone())  &
-                          datetime < as.POSIXct('04/16/2024 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ~ 2,
-                        TRUE ~ 3)
-         )) %>% 
-  mutate(yday = yday(date))
+  mutate(solar_year = as_factor(ceiling(interval(as_date(as.POSIXct('04/15/2022',format="%m/%d/%Y",tz=Sys.timezone())),as_date(date)) / years(1) ))) %>% 
+  mutate(yday = yday(date)) %>% 
+  arrange(datetime)
 
 hourly_electricity %>% 
   group_by(solar_year) %>% 
   filter(solar_year == 1 | solar_year == 2) %>% 
-  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh))
+  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh)) 
 
 ```
 
 Interesting! Produced kWh went down by 5%, but consumed kWh went down by 10% despite the fact that we got an electric car! Let's explore that further. 
 
 ```{r}
-daily_electricity <- hourly_electricity %>% 
-  group_by(solar_year, yday) %>% 
-  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh))
+yday_order <- c(106:366,1:105)
 
-ggplot(daily_electricity, aes(yday, consumed_kWh, group=solar_year, color=solar_year)) + 
+daily_electricity <- hourly_electricity %>% 
+  filter(solar_year == 1 | solar_year == 2) %>% 
+  group_by(solar_year, yday) %>% 
+  summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), .groups = "drop") %>% 
+  group_by(neworder = cumsum(yday == 106)) %>% 
+  mutate(plot_date = factor(yday, levels = yday_order, ordered = TRUE)) %>%
+  #mutate(plot_date = factor(yday, levels = yday_order, labels = parse_date_time(yday, orders = "j"), ordered = TRUE)) %>%
+  arrange(plot_date)
+
+ggplot(daily_electricity, aes(plot_date, consumed_kWh, group=solar_year, color=solar_year)) + 
   geom_point() +
   geom_smooth(span=0.3) +
-  scale_x_continuous(breaks = c(1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335), labels = month.abb) +
+  #scale_x_continuous(breaks = c(1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335), labels = month.abb) +
   theme(axis.text.x = element_text(angle = 90)) 
 
 ```
 
 Daily totals
 ```{r}
+
 daily_electricity <- hourly_electricity %>% 
-  mutate(solar_day = interval(as_date(as.POSIXct('04/15/2022',format="%m/%d/%Y",tz=Sys.timezone())),as_date(date)) / days(1) 
+  filter(solar_year == 1 | solar_year == 2) %>% 
+  mutate(solar_year_start_year = as.numeric(solar_year) - 1 + 2021) %>% 
+  mutate(solar_year_start_date = paste('04/15/',solar_year_start_year,sep='')) %>% 
+  mutate(solar_day = interval(as_date(as.POSIXct(paste('04/15/',solar_year_start_year),format="%m/%d/%Y",tz=Sys.timezone())),as_date(date)) / days(1) 
          ) %>% 
-  group_by(date, solar_day) %>% 
+  #filter(solar_day < 367) %>% 
+  group_by(date, solar_day, solar_year) %>% 
   summarize(net_kWh = sum(net_kWh), produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh))
 
-ggplot(daily_electricity, aes(date, consumed_kWh)) + 
+ggplot(daily_electricity, aes(solar_day, consumed_kWh, group = solar_year, color = solar_year)) + 
   geom_point() +
   #scale_x_continuous(breaks = c(1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335), labels = month.abb) +
   theme(axis.text.x = element_text(angle = 90)) 
@@ -167,6 +161,15 @@ hourly_electricity %>%
   arrange(month, solar_year) %>% 
   pivot_wider(names_from = month, values_from = consumed_kWh) %>% 
   arrange(solar_year)
+
+# hourly_electricity %>% 
+#   group_by(solar_day) %>% 
+#   summarize(consumed_kWh = mean(consumed_kWh)) %>% 
+#   arrange(month, solar_year) %>% 
+#   pivot_wider(names_from = month, values_from = consumed_kWh) %>% 
+#   arrange(solar_year)
+
+
 
 #Look at limited window during day (no EV charging)
  
@@ -222,17 +225,6 @@ ggplot(sample_day, aes(time, consumed_kWh, group=solar_year, color=solar_year)) 
 ```
 
 Ok, let's detect and remove EV charging sessions. 
-
-Bayesian change point example
-```{r}
-# library(onlineBcp)
-x <- c(rnorm(10, 2.6, 0.2), rnorm(1, 2.6/2, 0.2) + rnorm(1, .2, .15), rnorm(86, .2, .15))
-bcp <- online_cp(x)
-summary(bcp)
-
-bcp
-
-```
 
 Test on electricity consumption data
 ```{r}
@@ -343,7 +335,7 @@ bcp_segments %>%
 sample_adj <-  sample %>%  
   left_join(bcp_segments, by = join_by(time_x>=begin,time_x<=end)) %>% 
   mutate(consumed_kWh_adj = case_when(
-                                mean > 2.0 & mean < 3.0 ~ consumed_kWh - (mean - adj), 
+                                mean > 2.0 & length >= 4 & SD < 1.1 ~ consumed_kWh - (mean - adj), 
                                 .default = consumed_kWh
                                 )
          ) %>% 
@@ -386,6 +378,45 @@ kWh
 2	4382			
 3	607
 
-Underestimates by 
+Underestimates  
 
+Ignore the bcp model, just pull data on home charging from Emporia
+
+```{r}
+emporia_daily <- read_csv('/Users/benjedlovec/IoniqCharging/emporia_daily.csv') %>% 
+  mutate(date = date(datetime))
+
+daily_electricity_adj <- daily_electricity %>% 
+  mutate(date = as_date(date)) %>% 
+  left_join(emporia_daily, by = join_by(date)) %>% 
+  mutate(consumed_kWh_adj = consumed_kWh - replace_na(kWh,0)) %>% 
+  rename(solar_year = solar_year.x, charging_kWh = kWh)
+
+daily_electricity_adj %>% 
+  mutate(diff = consumed_kWh - consumed_kWh_adj) %>% 
+  group_by(solar_year) %>% 
+  summarize(consumed_kWh = sum(consumed_kWh), charging_kWh = sum(replace_na(charging_kWh,0)), consumed_kWh_adj = sum(replace_na(consumed_kWh_adj,0)), diff = sum(replace_na(diff,0)))
+
+ggplot(daily_electricity_adj, aes(solar_day, consumed_kWh_adj, group = solar_year, color = solar_year)) + 
+  geom_point() +
+  #scale_x_continuous(breaks = c(1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335), labels = month.abb) +
+  theme(axis.text.x = element_text(angle = 90)) 
+
+
+```
+
+```{r}
+monthly_reduction <- daily_electricity_adj %>% 
+  mutate(year_1 = sum(case_when(solar_year == 1 ~ consumed_kWh_adj)), year_2 = sum(case_when(solar_year == 2 ~ consumed_kWh_adj))) %>% 
+  group_by(month = month(date)) %>% 
+  summarize(year_1 = round(sum(replace_na(year_1,0))), year_2 = round(sum(replace_na(year_2,0)))) %>% 
+  mutate(pct = round((year_1-year_2)/year_1,2))
+
+monthly_reduction
+
+daily_electricity_adj %>% 
+  group_by(month = month(date), solar_year) %>% 
+  summarize(consumed_kWh_adj = sum(consumed_kWh_adj))
+
+```
 
