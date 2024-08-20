@@ -22,12 +22,13 @@ hourly1 <- read_excel("Hourly Usage 220326 to 220624.xlsx", col_types = col_data
 hourly2 <- read_excel("Hourly Usage 220625 to 230623.xlsx", col_types = col_datatypes)
 hourly3 <- read_excel("PPL 230624 to 240509.xlsx", col_types = col_datatypes)
 hourly4 <- read_excel("PPL 240510 to 240613.xlsx", col_types = col_datatypes)
+hourly5 <- read_excel("PPL 240614 to 240818.xlsx", col_types = col_datatypes)
 
 #hourly1
 #hourly2
 #hourly3
 
-ppl_15mins <- bind_rows(hourly1,list(hourly2,hourly3,hourly4))
+ppl_15mins <- bind_rows(hourly1,list(hourly2,hourly3,hourly4,hourly5))
 
 ppl_15mins %>% arrange(desc(Date), `Read Type`)
 

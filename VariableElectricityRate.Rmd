@@ -1,0 +1,205 @@
+---
+title: "Variable Electricity Rate Analysis"
+output: html_notebook
+---
+
+```{r}
+#library(rmarkdown)
+library(tidyverse)
+library(lubridate)
+library(hms)
+```
+Import and examine PPL 15 minute net meter interval data
+
+```{r}
+hourly_ppl_pivot <- read_csv("ppl_15mins.csv")
+
+(hourly_ppl_net <- hourly_ppl_pivot %>% 
+  filter(`Read Type` == "kWh Net") %>% 
+  arrange(desc(date)))
+```
+
+Load Enphase data
+```{r}
+full_hist <- read_csv("enphase_production.csv")
+
+(hourly_production <- full_hist %>% 
+  rename(datetime = `Date/Time`, energy_produced_Wh = `Energy Produced (Wh)`) %>% 
+  mutate(datetime = as.POSIXct(datetime,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
+  mutate(date = date(datetime), time = as.hms(format(datetime, format = "%H:%M:%S")), month = month(datetime, label=TRUE), year = year(datetime), day = day(datetime), yday = yday(datetime), monthday = format(datetime, "%m-%d"), wday = wday(datetime, label=TRUE), equinox_day = (yday + 10) %% 365, equinox_group = floor((equinox_day+15)/30)*30) %>% 
+    arrange(desc(datetime))
+)
+
+```
+
+
+Net + Produced = Consumed
+
+```{r}
+(hourly_electricity <- hourly_ppl_net %>% 
+    inner_join(hourly_production, by = join_by(date,time))  %>% 
+    mutate(consumed_kWh = kWh + energy_produced_Wh/1000, produced_kWh = energy_produced_Wh/1000)  %>% 
+    rename(net_kWh = kWh) %>% 
+    select(datetime, date, time, net_kWh, produced_kWh, consumed_kWh) %>%
+    arrange(desc(datetime)))
+
+hourly_electricity %>% 
+  summarize(min(date), max(date))
+
+```
+
+```{r}
+fixed_rate <- 0.1004 + 0.04727 #PA average electricity rate, supply + delivery charges combined
+
+hourly_electricity %>% 
+  mutate(net_fixed = net_kWh * fixed_rate, consumed_fixed = consumed_kWh * fixed_rate) %>% 
+  #group_by(year(date), month(date)) %>% 
+  summarize(net_fixed = sum(net_fixed), consumed_fixed = sum(consumed_fixed))
+
+```
+
+```{r}
+#https://www.pplelectric.com/my-account/shop-for-electricity/time-of-use-plan/tou-enrollment
+peak_rate <- 0.12936 + 0.04727
+off_peak_rate <- 0.09319 + 0.04727
+
+#add holidays to off_peak
+  # New Year's Day
+  # Presidents Day
+  # Good Friday
+  # Memorial Day
+  # Independence Day
+  # Labor Day
+  # Thanksgiving Day
+  # Day after Thanksgiving
+  # Christmas Eve
+  # Christmas Day
+
+hourly_electricity %>% 
+  mutate(variable_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
+                                   hour(datetime) >= 14 & hour(datetime) < 18 & month(datetime) %in% c(6,7,8,9,10,11) ~ peak_rate, #JuneToNovPeak
+                                   hour(datetime) >= 16 & hour(datetime) < 20 & month(datetime) %in% c(12,1,2,3,4,5) ~ peak_rate, #DecToMayPeak
+                                   .default = off_peak_rate
+                                   ) 
+         ) %>% 
+  #group_by(year(date), month(date)) %>%
+  summarize(net_variable = sum(net_kWh*variable_rate), consumed_variable = sum(consumed_kWh*variable_rate))
+  
+
+```
+
+Somewhat better to shift to variable in both cases (with or without solar).
+
+
+What if we shifted the EV charging load? 
+- Detect EV charging load
+- Give it the lower rate
+
+
+Load Emporia charging 15 minute interval data
+```{r}
+
+min15_2023 <- read_csv("FA1BE4-Emporia_Garage-15MIN_20230609_20231231.csv", show_col_types = FALSE) %>%
+                mutate(`Date/Time` = as.POSIXct(`Time Bucket (America/New_York)`,format="%m/%d/%Y %H:%M",tz=Sys.timezone()))
+min15_2024 <- read_csv("FA1BE4-Emporia_Garage-15MIN_20240101_20240613.csv", show_col_types = FALSE) %>%
+                mutate(`Date/Time` = as.POSIXct(`Time Bucket (America/New_York)`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>%
+                filter(`Date/Time` < as.POSIXct('06/11/2024 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) )
+min15_2024_2 <- read_csv("FA1BE4-Emporia_Garage-15MIN_20240611_20240819.csv", show_col_types = FALSE) %>%
+                mutate(`Date/Time` = as.POSIXct(`Time Bucket (America/New_York)`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>%
+                filter(`Date/Time` < as.POSIXct('08/20/2024 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) )
+
+# min15_2023 <- read_csv("FA1BE4-Emporia_Garage-15MIN_20230609_20231231.csv", show_col_types = FALSE)
+# min15_2024 <- read_csv("FA1BE4-Emporia_Garage-15MIN_20240101_20240613.csv", show_col_types = FALSE)
+# min15_2024_2 <- read_csv("FA1BE4-Emporia_Garage-15MIN_20240611_20240819.csv", show_col_types = FALSE)
+
+min15_charging <- rbind(min15_2023,min15_2024)
+min15_charging <- rbind(min15_charging,min15_2024_2)
+
+#min15_charging <- rbind(min15_2024,list(min15_2024,min15_2024_2))
+
+#change data types
+min15_charging <- min15_charging %>% 
+  rename(datetime = `Time Bucket (America/New_York)`, kW = `Emporia Garage-EV (kWatts)`) %>% 
+  #mutate(datetime = as_datetime(datetime, tz = 'America/New_York'))
+  #mutate(datetime = as.POSIXct(datetime,format="%m/%d/%Y %H:%M:%S",tz='America/New_York'))
+  mutate(datetime = mdy_hms(datetime, tz = 'America/New_York')) %>% 
+  mutate(solar_year = factor(case_when(
+                        datetime < as.POSIXct('04/16/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ~ 0,
+                        datetime >= as.POSIXct('04/16/2022 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone())  &
+                          datetime < as.POSIXct('04/16/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ~ 1,
+                        datetime >= as.POSIXct('04/16/2023 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone())  &
+                          datetime < as.POSIXct('04/16/2024 00:00',format="%m/%d/%Y %H:%M",tz=Sys.timezone()) ~ 2,
+                        TRUE ~ 3)
+         )) %>% 
+  arrange(desc(datetime))
+
+min15_charging 
+```
+
+Check date range for available hourly charging data
+```{r}
+min15_charging %>% 
+  summarize(min(datetime), max(datetime))
+
+min_datetime <- pull(min15_charging %>% summarize(min = min(datetime)))
+max_datetime <- pull(min15_charging %>% summarize(max = max(datetime)))
+```
+
+Run fixed and variable rates on those dates
+```{r}
+#Fixed rate
+
+hourly_electricity %>% 
+  filter(between(date, min_datetime, max_datetime)) %>% 
+  arrange(desc(datetime))
+
+hourly_electricity %>% 
+  mutate(net_fixed = net_kWh * fixed_rate, consumed_fixed = consumed_kWh * fixed_rate) %>% 
+  filter(between(datetime, min_datetime, max_datetime)) %>% 
+  summarize(net_fixed = sum(net_fixed), consumed_fixed = sum(consumed_fixed))
+
+
+```
+
+```{r}
+#variable rate
+hourly_electricity %>% 
+  mutate(variable_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
+                                   hour(datetime) >= 14 & hour(datetime) < 18 & month(datetime) %in% c(6,7,8,9,10,11) ~ peak_rate, #JuneToNovPeak
+                                   hour(datetime) >= 16 & hour(datetime) < 20 & month(datetime) %in% c(12,1,2,3,4,5) ~ peak_rate, #DecToMayPeak
+                                   .default = off_peak_rate
+                                   ) 
+         ) %>% 
+  filter(between(datetime, min_datetime, max_datetime)) %>% 
+  summarize(net_variable = sum(net_kWh*variable_rate), consumed_variable = sum(consumed_kWh*variable_rate))
+  
+```
+
+Shift EV charging to lower rate
+```{r}
+
+#Join hourly_electricity to min15_charging
+hourly_electricity %>% 
+  inner_join(min15_charging, by = join_by(datetime)) 
+
+#fix time zone sync
+
+#variable rate
+#shift charging load
+#for peak hours, subtract ev charging kWh and add back at off-peak rate
+
+hourly_electricity %>% 
+  mutate(variable_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
+                                   hour(datetime) >= 14 & hour(datetime) < 18 & month(datetime) %in% c(6,7,8,9,10,11) ~ peak_rate, #JuneToNovPeak
+                                   hour(datetime) >= 16 & hour(datetime) < 20 & month(datetime) %in% c(12,1,2,3,4,5) ~ peak_rate, #DecToMayPeak
+                                   .default = off_peak_rate
+                                   ) 
+         ) %>% 
+  filter(between(datetime, min_datetime, max_datetime)) %>% 
+  summarize(net_variable = sum(net_kWh*variable_rate), consumed_variable = sum(consumed_kWh*variable_rate))
+  
+
+```
+
+
+

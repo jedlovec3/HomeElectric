@@ -16,6 +16,9 @@ Load Enphase data
 ```{r}
 import <- read_csv("enphase_history_230701.csv")
 update <- read_csv("hourly_generation_230625_240510.csv")
+update2 <- read_csv("hourly_generation_240511_240819.csv")
+
+update <- rbind(update,update2)
 
 update <- update %>% 
   mutate(`Date/Time` = as.POSIXct(`Date/Time`,format="%m/%d/%Y %H:%M",tz=Sys.timezone())) %>% 
