@@ -34,7 +34,7 @@ full_hist <- read_csv("enphase_production.csv")
 
 
 Net + Produced = Consumed
-
+Start and End Dates of electricity data
 ```{r}
 (hourly_electricity <- hourly_ppl_net %>% 
     inner_join(hourly_production, by = join_by(date,time))  %>% 
@@ -48,6 +48,7 @@ hourly_electricity %>%
 
 ```
 
+Cost of fixed rate electricity over the full period. 
 ```{r}
 fixed_rate <- 0.1004 + 0.04727 #PA average electricity rate, supply + delivery charges combined
 
@@ -57,7 +58,7 @@ hourly_electricity %>%
   summarize(net_fixed = sum(net_fixed), consumed_fixed = sum(consumed_fixed))
 
 ```
-
+Time of Use rate cost over the full period
 ```{r}
 #https://www.pplelectric.com/my-account/shop-for-electricity/time-of-use-plan/tou-enrollment
 peak_rate <- 0.12936 + 0.04727
@@ -76,25 +77,24 @@ off_peak_rate <- 0.09319 + 0.04727
   # Christmas Day
 
 hourly_electricity %>% 
-  mutate(variable_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
+  mutate(tou_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
                                    hour(datetime) >= 14 & hour(datetime) < 18 & month(datetime) %in% c(6,7,8,9,10,11) ~ peak_rate, #JuneToNovPeak
                                    hour(datetime) >= 16 & hour(datetime) < 20 & month(datetime) %in% c(12,1,2,3,4,5) ~ peak_rate, #DecToMayPeak
                                    .default = off_peak_rate
                                    ) 
          ) %>% 
   #group_by(year(date), month(date)) %>%
-  summarize(net_variable = sum(net_kWh*variable_rate), consumed_variable = sum(consumed_kWh*variable_rate))
+  summarize(net_tou_cost = sum(net_kWh*tou_rate), consumed_tou_cost = sum(consumed_kWh*tou_rate))
   
 
 ```
 
-Somewhat better to shift to variable in both cases (with or without solar).
+Somewhat better to shift to TOU in both cases (with or without solar).
 
 
 What if we shifted the EV charging load? 
 - Detect EV charging load
 - Give it the lower rate
-
 
 Load Emporia charging 15 minute interval data
 ```{r}
@@ -133,7 +133,12 @@ min15_charging <- min15_charging %>%
          )) %>% 
   arrange(desc(datetime))
 
-min15_charging 
+min15_charging <- min15_charging %>% 
+  mutate(date = date(datetime), time = as_hms(datetime)) %>% 
+  mutate(charging_kWh = kW/4) %>% 
+  select (-c(solar_year,`Date/Time`,kW))
+
+min15_charging
 ```
 
 Check date range for available hourly charging data
@@ -146,6 +151,7 @@ max_datetime <- pull(min15_charging %>% summarize(max = max(datetime)))
 ```
 
 Run fixed and variable rates on those dates
+Fixed rate cost on this data rate.
 ```{r}
 #Fixed rate
 
@@ -154,24 +160,24 @@ hourly_electricity %>%
   arrange(desc(datetime))
 
 hourly_electricity %>% 
-  mutate(net_fixed = net_kWh * fixed_rate, consumed_fixed = consumed_kWh * fixed_rate) %>% 
+  mutate(net_fixed_cost = net_kWh * fixed_rate, consumed_fixed_cost = consumed_kWh * fixed_rate) %>% 
   filter(between(datetime, min_datetime, max_datetime)) %>% 
-  summarize(net_fixed = sum(net_fixed), consumed_fixed = sum(consumed_fixed))
-
+  summarize(net_fixed_cost = sum(net_fixed_cost), consumed_fixed_cost = sum(consumed_fixed_cost))
 
 ```
 
+TOU cost for this date range
 ```{r}
 #variable rate
 hourly_electricity %>% 
-  mutate(variable_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
+  mutate(tou_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
                                    hour(datetime) >= 14 & hour(datetime) < 18 & month(datetime) %in% c(6,7,8,9,10,11) ~ peak_rate, #JuneToNovPeak
                                    hour(datetime) >= 16 & hour(datetime) < 20 & month(datetime) %in% c(12,1,2,3,4,5) ~ peak_rate, #DecToMayPeak
                                    .default = off_peak_rate
                                    ) 
          ) %>% 
   filter(between(datetime, min_datetime, max_datetime)) %>% 
-  summarize(net_variable = sum(net_kWh*variable_rate), consumed_variable = sum(consumed_kWh*variable_rate))
+  summarize(net_tou_cost = sum(net_kWh*tou_rate), consumed_variable = sum(consumed_kWh*tou_rate))
   
 ```
 
@@ -179,27 +185,184 @@ Shift EV charging to lower rate
 ```{r}
 
 #Join hourly_electricity to min15_charging
-hourly_electricity %>% 
-  inner_join(min15_charging, by = join_by(datetime)) 
+min15_electricity_charging <- hourly_electricity %>% 
+  inner_join(min15_charging, by = join_by(date,time)) %>% 
+  mutate(net_kWh_no_charging = net_kWh - charging_kWh, consumed_kWh_no_charging = consumed_kWh - charging_kWh) %>% 
+  rename(datetime = datetime.x)
 
-#fix time zone sync
+#fix github push issue
 
 #variable rate
 #shift charging load
 #for peak hours, subtract ev charging kWh and add back at off-peak rate
 
-hourly_electricity %>% 
-  mutate(variable_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
+min15_electricity_charging %>% 
+  mutate(tou_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
                                    hour(datetime) >= 14 & hour(datetime) < 18 & month(datetime) %in% c(6,7,8,9,10,11) ~ peak_rate, #JuneToNovPeak
                                    hour(datetime) >= 16 & hour(datetime) < 20 & month(datetime) %in% c(12,1,2,3,4,5) ~ peak_rate, #DecToMayPeak
                                    .default = off_peak_rate
                                    ) 
          ) %>% 
   filter(between(datetime, min_datetime, max_datetime)) %>% 
-  summarize(net_variable = sum(net_kWh*variable_rate), consumed_variable = sum(consumed_kWh*variable_rate))
+  summarize(net_tou_cost = sum(net_kWh_no_charging*tou_rate + charging_kWh*off_peak_rate), consumed_tou_cost = sum(consumed_kWh_no_charging*tou_rate + charging_kWh*off_peak_rate))
   
+
+```
+
+Looks like it saves even more. Over this ~14 month period, we would have saved about $70 more with a TOU rate that and EV charging load shifting.
+
+Plot of energy usage by hour
+- Split by months
+```{r}
+
+by_month <- hourly_electricity %>% 
+  filter(between(datetime, min_datetime, max_datetime)) %>% 
+  mutate(month = as.factor(month(date))) %>% 
+  group_by(month, time) %>% 
+  summarize(n = n(), net_kWh = mean(net_kWh), produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh))
+
+ggplot(by_month, aes(time, net_kWh, color=month)) +
+  geom_point() 
+
+ggplot(by_month, aes(time, consumed_kWh, color=month)) +
+  geom_point()
+
+ggplot(by_month, aes(time, produced_kWh, color=month)) +
+  geom_point()
+
+jun_nov_electricity <- hourly_electricity %>% 
+  filter(between(datetime, min_datetime, max_datetime), month(date) %in% c(6,7,8,9,10,11)) %>% 
+  group_by(time) %>% 
+  summarize(n = n(), net_kWh = mean(net_kWh), produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh))
+
+jun_nov_electricity <- hourly_electricity %>% 
+  filter(between(datetime, min_datetime, max_datetime), month(date) %in% c(6,7,8,9,10,11)) %>% 
+  group_by(time) %>% 
+  summarize(n = n(), net_kWh = mean(net_kWh), produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh))
+
+ggplot(jun_nov_electricity, aes(time, net_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("14:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("18:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Jun to Nov Electricity Load")
+
+ggplot(jun_nov_electricity, aes(time, consumed_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("14:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("18:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Jun to Nov Electricity Load")
+
+dec_may_electricity <- hourly_electricity %>% 
+  filter(between(datetime, min_datetime, max_datetime), month(date) %in% c(12,1,2,3,4,5)) %>% 
+  group_by(time) %>% 
+  summarize(n = n(), net_kWh = mean(net_kWh), produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh))
+
+ggplot(dec_may_electricity, aes(time, net_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("16:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("20:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Dec to May Electricity Load")
+
+ggplot(dec_may_electricity, aes(time, consumed_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("16:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("20:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Dec to May Electricity Load")
+
+
+```
+
+EV charging by hour
+
+
+Load without charging 
+```{r}
+
+jun_nov_electricity_no_charging <- min15_electricity_charging %>% 
+  filter(between(datetime, min_datetime, max_datetime), month(date) %in% c(6,7,8,9,10,11)) %>% 
+  mutate(period = "Jun to Nov") %>% 
+  group_by(period, time) %>% 
+  summarize(n = n(), net_kWh = mean(net_kWh_no_charging), produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh_no_charging))
+
+ggplot(jun_nov_electricity_no_charging, aes(time, net_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("14:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("18:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Jun to Nov Electricity Load - No Charging")
+
+ggplot(jun_nov_electricity_no_charging, aes(time, consumed_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("14:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("18:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Jun to Nov Electricity Load - No Charging")
+
+dec_may_electricity_no_charging <- min15_electricity_charging %>% 
+  filter(between(datetime, min_datetime, max_datetime), month(date) %in% c(12,1,2,3,4,5)) %>% 
+  mutate(period = "Dec to May") %>% 
+  group_by(period, time) %>% 
+  summarize(n = n(), net_kWh = mean(net_kWh_no_charging), produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh_no_charging))
+
+ggplot(dec_may_electricity_no_charging, aes(time, net_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("16:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("20:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Dec to May Electricity Load - No Charging")
+
+ggplot(dec_may_electricity_no_charging, aes(time, consumed_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("16:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("20:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Dec to May Electricity Load - No Charging")
+
+electricity_no_charging_by_period <- rbind(jun_nov_electricity_no_charging, dec_may_electricity_no_charging)
+
+ggplot(electricity_no_charging_by_period, aes(time, consumed_kWh, group=period, color=period)) +
+  geom_point()
+
 
 ```
 
 
 
+```{r}
+min15_electricity_charging 
+
+jun_nov_electricity <- hourly_electricity %>% 
+  filter(between(datetime, min_datetime, max_datetime), month(date) %in% c(6,7,8,9,10,11)) %>% 
+  group_by(time) %>% 
+  summarize(n = n(), net_kWh = mean(net_kWh), produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh))
+
+ggplot(jun_nov_electricity, aes(time, net_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("14:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("18:00:00"), colour="red", linetype = "longdash")
+
+ggplot(jun_nov_electricity, aes(time, consumed_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("14:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("18:00:00"), colour="red", linetype = "longdash")
+
+dec_may_electricity <- hourly_electricity %>% 
+  filter(between(datetime, min_datetime, max_datetime), month(date) %in% c(12,1,2,3,4,5)) %>% 
+  group_by(time) %>% 
+  summarize(n = n(), net_kWh = mean(net_kWh), produced_kWh = mean(produced_kWh), consumed_kWh = mean(consumed_kWh))
+
+ggplot(dec_may_electricity, aes(time, net_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("16:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("20:00:00"), colour="red", linetype = "longdash")
+
+ggplot(dec_may_electricity, aes(time, consumed_kWh)) +
+  geom_point() + 
+  geom_vline(xintercept = as_hms("16:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("20:00:00"), colour="red", linetype = "longdash")
+
+
+
+```
+
+
+
+Plot of peak/off peak energy usage (stacked bar chart?)
+- Same plot with shifted load
+- Split by months
