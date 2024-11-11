@@ -1,5 +1,5 @@
 ---
-title: "Variable Electricity Rate Analysis"
+title: "Time of Use Electricity Rate Analysis"
 output: html_notebook
 ---
 
@@ -55,15 +55,216 @@ fixed_rate <- 0.1004 + 0.04727 #PA average electricity rate, supply + delivery c
 hourly_electricity %>% 
   mutate(net_fixed = net_kWh * fixed_rate, consumed_fixed = consumed_kWh * fixed_rate) %>% 
   #group_by(year(date), month(date)) %>% 
-  summarize(net_fixed = sum(net_fixed), consumed_fixed = sum(consumed_fixed))
+  summarize(produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_fixed_cost = sum(net_fixed), consumed_fixed_cost = sum(consumed_fixed))
 
 ```
+Peak vs. Off-peak consumption/production
+
+```{r}
+electricity_by_time_jun_nov <- hourly_electricity %>% 
+  filter(month(date) %in% c(6,7,8,9,10,11)) %>% 
+  group_by(time) %>% 
+  summarize(produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_kWh = sum(consumed_kWh) - sum(produced_kWh)) %>% 
+  mutate(produced_pct = produced_kWh/(consumed_kWh+produced_kWh))
+
+ggplot(electricity_by_time_jun_nov, aes(x = time, y = produced_pct)) +
+  geom_bar(stat="identity") +
+  geom_vline(xintercept = as_hms("14:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("18:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Summer Production Pct")
+
+electricity_by_time_dec_may <- hourly_electricity %>% 
+  filter(month(date) %in% c(12,1,2,3,4,5)) %>% 
+  group_by(time) %>% 
+  summarize(produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_kWh = sum(consumed_kWh) - sum(produced_kWh)) %>% 
+  mutate(produced_pct = produced_kWh/(consumed_kWh+produced_kWh))
+
+ggplot(electricity_by_time_dec_may, aes(x = time, y = produced_pct)) +
+  geom_bar(stat="identity") +
+  geom_vline(xintercept = as_hms("16:00:00"), colour="green", linetype = "longdash") + 
+  geom_vline(xintercept = as_hms("20:00:00"), colour="red", linetype = "longdash") +
+  ggtitle("Winter Production Pct")
+```
+
+
+```{r}
+#monthly totals by peak/off-peak
+peak_off_peak_electricity_by_month <- hourly_electricity %>% 
+  mutate(year = year(date), month = month(date), year_month = format(date,"%Y-%m"),
+    category = case_when(wday(datetime) %in% c(1,7) ~ "off_peak", #weekends
+                                   hour(datetime) >= 14 & hour(datetime) < 18 & month(datetime) %in% c(6,7,8,9,10,11) ~ "peak", #JuneToNovPeak
+                                   hour(datetime) >= 16 & hour(datetime) < 20 & month(datetime) %in% c(12,1,2,3,4,5) ~ "peak", #DecToMayPeak
+                                   .default = "off_peak"
+                                   ) 
+         ) %>% 
+  group_by(year, month, year_month, category) %>% 
+  summarize(produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_kWh = sum(consumed_kWh) - sum(produced_kWh)) %>% 
+  arrange(year, month)
+
+peak_off_peak_electricity_by_month
+
+
+#peak/offpeak totals
+peak_off_peak_electricity <- peak_off_peak_electricity_by_month %>% 
+  group_by(category) %>% 
+  summarize(produced_kWh = sum(produced_kWh), consumed_kWh = sum(consumed_kWh), net_kWh = sum(consumed_kWh) - sum(produced_kWh)) 
+
+peak_off_peak_electricity %>% 
+  summarize(produced_off_peak = sum(case_when(category=="off_peak" ~ produced_kWh, .default = 0)), 
+         produced_peak = sum(case_when(category=="peak" ~ produced_kWh, .default = 0)), 
+         consumed_off_peak = sum(case_when(category=="off_peak" ~ consumed_kWh, .default = 0)), 
+         consumed_peak = sum(case_when(category=="peak" ~ consumed_kWh, .default = 0)), 
+         net_off_peak = sum(case_when(category=="off_peak" ~ net_kWh, .default = 0)), 
+         net_peak = sum(case_when(category=="peak" ~ net_kWh, .default = 0)), 
+         ) %>% 
+  mutate(produced_peak_pct = produced_peak/(produced_peak+produced_off_peak), 
+         consumed_peak_pct = consumed_peak/(consumed_peak+consumed_off_peak))
+
+#by month pivot
+peak_off_peak_electricity_by_month_pivot <- peak_off_peak_electricity_by_month %>% 
+  group_by(year, month, year_month) %>% 
+  summarize(produced_off_peak = sum(case_when(category=="off_peak" ~ produced_kWh, .default = 0)), 
+         produced_peak = sum(case_when(category=="peak" ~ produced_kWh, .default = 0)), 
+         consumed_off_peak = sum(case_when(category=="off_peak" ~ consumed_kWh, .default = 0)), 
+         consumed_peak = sum(case_when(category=="peak" ~ consumed_kWh, .default = 0)), 
+         net_off_peak = sum(case_when(category=="off_peak" ~ net_kWh, .default = 0)), 
+         net_peak = sum(case_when(category=="peak" ~ net_kWh, .default = 0)), 
+         ) %>% 
+  mutate(produced_peak_pct = produced_peak/(produced_peak+produced_off_peak), 
+         consumed_peak_pct = consumed_peak/(consumed_peak+consumed_off_peak))
+
+peak_off_peak_electricity_by_month_pivot
+
+#Plot peak usage by month
+ggplot(peak_off_peak_electricity_by_month, aes(x = year_month, y = consumed_kWh, fill = category)) +
+  geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(peak_off_peak_electricity_by_month, aes(x = year_month, y = produced_kWh, fill = category)) +
+  geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(peak_off_peak_electricity_by_month, aes(x = year_month, y = net_kWh, fill = category)) +
+  geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
 Time of Use rate cost over the full period
+
+Step 1: Usage totaled
+We total your usage and generation by each season. If you generated more than you used, we’ll add these to your bank. You’ll still receive a bill for basic service. If you used more than you generated, we move to Step 2.
+- Might have to go back and group by season as well as month/year
+
+Step 2: Current bill
+In the same bill cycle, you may have usage to offset in one season or time period, and excess generation in another. If this is the case, we use your excess generation first to offset any usage you would be billed for.
+
+Step 3: Bank applied
+If you still have usage you would be billed for, we pull any existing or previously banked hours to offset your bill. Banked hours are used chronologically. You will be billed for any kilowatt-hours used above your banked amount.
+
+
+
+How is my bank used?
+If you generate more than you use, you’ll bank kilowatt-hours at seasonal on- and off-peak rates. Then if there is a month when you use more than you generate, we’ll use some of those banked hours to offset your energy costs.
+
+Here is how we use your bank to offset your usage:
+
+Banked hours are used chronologically. For example, June’s off-peak hours would be used first, then June’s on-peak hours.
+Your usage is also offset chronologically. We offset your oldest on-peak hours first. Then your oldest off-peak hours.
+
+
 ```{r}
 #https://www.pplelectric.com/my-account/shop-for-electricity/time-of-use-plan/tou-enrollment
 peak_rate <- 0.12936 + 0.04727
 off_peak_rate <- 0.09319 + 0.04727
 
+#write_csv(peak_off_peak_electricity_by_month_pivot, "peak_off_peak_electricity_by_month_pivot.csv")
+
+df <- peak_off_peak_electricity_by_month_pivot %>% 
+  rowid_to_column(var='row_id') %>% 
+  ungroup() %>% 
+  slice_min(row_id, n=5)
+
+df
+
+#set variables net, net_peak, net_off_peak, peak_bank, off_peak_bank
+net <- 0 
+net_peak <- 0
+net_off_peak <- 0
+peak_bank <- 0 
+off_peak_bank <- 0
+
+i = 1
+  
+while(i <= nrow(df)) {
+  
+  #print(i)
+  
+  #pull net kWh values from this month
+  net_peak <- pull(df %>% filter(row_id == i) %>% select(net_peak))
+  net_off_peak <- pull(df %>% filter(row_id == i) %>% select(net_off_peak))
+  net <- net_peak + net_off_peak
+
+  if (net <= 0) {
+    if (net_peak <= 0 & net_off_peak <= 0) {
+      peak_bank = peak_bank + net_peak
+      off_peak_bank = off_peak_bank + net_off_peak
+    } 
+    else if (net_peak <= 0 & net_off_peak > 0) {
+      peak_bank = peak_bank + net
+    }
+    else if (net_off_peak <= 0 & net_peak > 0) {
+      off_peak_bank = off_peak_bank + net
+    }
+  } else if (net > 0) {
+    if (net_peak > 0 & net_off_peak > 0) { 
+      peak_bank = peak_bank + net_peak
+      off_peak_bank = off_peak_bank + net_off_peak
+    } else if (net_peak <= 0 & net_off_peak > 0) {
+      off_peak_bank = off_peak_bank + net
+    } else if (net_off_peak <= 0 & net_peak > 0) { 
+      peak_bank = peak_bank + net
+    }
+  } else if (off_peak_bank > 0 & peak_bank > 0) {
+    #charge customer for each and reset to 0
+    #fix these
+    #df <- df %>% filter(row_id == i) %>% mutate(peak_charge = peak_rate*peak_bank)
+    #df <- df %>% filter(row_id == i) %>% mutate(off_peak_charge = off_peak_rate*off_peak_bank)
+    peak_bank <- 0 
+    off_peak_bank <- 0
+  } else if (peak_bank > 0) {
+    #charge the customer and reset to 0
+    df <- df %>% filter(row_id == i) %>% mutate(peak_charge = peak_rate*peak_bank)
+    peak_bank <- 0 
+    off_peak_bank <- 0
+  }
+  
+  df$peak_bank <- peak_bank
+  df$off_peak_bank <- off_peak_bank
+  
+  
+  #split by season (summer/winter)
+  
+  #if month == 5, then charge the customer and reset to 0 
+  #peak_bank <- 0 
+  #off_peak_bank <- 0
+  
+  
+  i = i + 1
+}
+
+
+```
+
+
+```{r}
+
+```
+
+
+Details to come back to:
+```{r}
 #add holidays to off_peak
   # New Year's Day
   # Presidents Day
@@ -76,6 +277,21 @@ off_peak_rate <- 0.09319 + 0.04727
   # Christmas Eve
   # Christmas Day
 
+#separate seasons (even within a bill)
+
+#account for rate changes
+
+```
+
+
+
+
+
+
+
+
+If TOU rate applied hourly (N/A): 
+```{r eval=FALSE, include=FALSE}
 hourly_electricity %>% 
   mutate(tou_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
                                    hour(datetime) >= 14 & hour(datetime) < 18 & month(datetime) %in% c(6,7,8,9,10,11) ~ peak_rate, #JuneToNovPeak
@@ -88,7 +304,6 @@ hourly_electricity %>%
   
 
 ```
-
 Somewhat better to shift to TOU in both cases (with or without solar).
 
 
@@ -97,7 +312,7 @@ What if we shifted the EV charging load?
 - Give it the lower rate
 
 Load Emporia charging 15 minute interval data
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 min15_2023 <- read_csv("FA1BE4-Emporia_Garage-15MIN_20230609_20231231.csv", show_col_types = FALSE) %>%
                 mutate(`Date/Time` = as.POSIXct(`Time Bucket (America/New_York)`,format="%m/%d/%Y %H:%M",tz=Sys.timezone()))
@@ -142,7 +357,7 @@ min15_charging
 ```
 
 Check date range for available hourly charging data
-```{r}
+```{r eval=FALSE, include=FALSE}
 min15_charging %>% 
   summarize(min(datetime), max(datetime))
 
@@ -152,7 +367,7 @@ max_datetime <- pull(min15_charging %>% summarize(max = max(datetime)))
 
 Run fixed and variable rates on those dates
 Fixed rate cost on this date range.
-```{r}
+```{r eval=FALSE, include=FALSE}
 #Fixed rate
 
 hourly_electricity %>% 
@@ -167,7 +382,7 @@ hourly_electricity %>%
 ```
 
 TOU cost for this date range
-```{r}
+```{r eval=FALSE, include=FALSE}
 #TOU rate
 hourly_electricity %>% 
   mutate(tou_rate = case_when(wday(datetime) %in% c(1,7) ~ off_peak_rate, #weekends
@@ -182,7 +397,7 @@ hourly_electricity %>%
 ```
 
 Shift EV charging to lower rate
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 #Join hourly_electricity to min15_charging
 min15_electricity_charging <- hourly_electricity %>% 
@@ -213,7 +428,7 @@ Looks like it saves even more. Over this ~14 month period, we would have saved a
 
 Plot of energy usage by hour
 - Split by months
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 by_month <- hourly_electricity %>% 
   filter(between(datetime, min_datetime, max_datetime)) %>% 
@@ -281,7 +496,7 @@ EV charging by hour
 
 
 Load without charging 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 jun_nov_electricity_no_charging <- min15_electricity_charging %>% 
   filter(between(datetime, min_datetime, max_datetime), month(date) %in% c(6,7,8,9,10,11)) %>% 
@@ -332,7 +547,7 @@ ggplot(electricity_no_charging_by_period, aes(time, consumed_kWh, group=period, 
 
 
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 min15_electricity_charging 
 
 jun_nov_electricity <- hourly_electricity %>% 
@@ -377,7 +592,7 @@ On peak vs off peak kWh by day/month
 
 
 Charging by time of day? Winter vs. summer? 
-```{r}
+```{r eval=FALSE, include=FALSE}
 seasonal_charging_times <- min15_electricity_charging %>% 
   mutate(season = case_when(month(date) %in% c(6,7,8,9,10,11) ~ 'JunNov', 
                             .default = 'DecMay')) %>% 
@@ -394,7 +609,7 @@ ggplot(seasonal_charging_times, aes(time, charging_kWh, group=season, color=seas
 
 
 Plot of my average energy usage in "summer" vs. "winter"
-```{r}
+```{r eval=FALSE, include=FALSE}
 seasonal_electricity <- hourly_electricity %>% 
   filter(between(datetime, min_datetime, max_datetime)) %>% 
   mutate(season = case_when(month(date) %in% c(6,7,8,9,10,11) ~ 'JunNov', 
@@ -416,7 +631,7 @@ ggplot(seasonal_electricity, aes(time, net_kWh, group=season, color=season)) +
 plot of energy cost by day on each plan. 
   - Total by month
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 #fixed rate
 fixed_cost <- hourly_electricity %>% 
