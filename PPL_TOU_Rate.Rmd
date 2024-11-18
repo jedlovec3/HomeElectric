@@ -239,7 +239,7 @@ while(i <= nrow(df)) {
     off_peak_bank <- 0
   }
   
-  df <- rows_update(df, tibble(row_id = i, cum_off_peak_bank = off_peak_bank, cum_peak_bank = peak_bank), by = "row_id")
+  df <- rows_update(df, tibble(row_id = i, cum_off_peak_bank = off_peak_bank, cum_peak_bank = peak_bankuse), by = "row_id")
   #df$peak_bank <- peak_bank
   #df$off_peak_bank <- off_peak_bank
   
