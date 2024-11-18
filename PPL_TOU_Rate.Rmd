@@ -183,10 +183,9 @@ off_peak_rate <- 0.09319 + 0.04727
 
 df <- peak_off_peak_electricity_by_month_pivot %>% 
   rowid_to_column(var='row_id') %>% 
+  mutate(cum_off_peak_bank = 0, cum_peak_bank = 0) %>% 
   ungroup() %>% 
-  slice_min(row_id, n=5)
-
-df
+  slice_min(row_id, n=15)
 
 #set variables net, net_peak, net_off_peak, peak_bank, off_peak_bank
 net <- 0 
@@ -240,9 +239,9 @@ while(i <= nrow(df)) {
     off_peak_bank <- 0
   }
   
-  df$peak_bank <- peak_bank
-  df$off_peak_bank <- off_peak_bank
-  
+  df <- rows_update(df, tibble(row_id = i, cum_off_peak_bank = off_peak_bank, cum_peak_bank = peak_bank), by = "row_id")
+  #df$peak_bank <- peak_bank
+  #df$off_peak_bank <- off_peak_bank
   
   #split by season (summer/winter)
   
@@ -250,10 +249,10 @@ while(i <= nrow(df)) {
   #peak_bank <- 0 
   #off_peak_bank <- 0
   
-  
   i = i + 1
 }
 
+df
 
 ```
 
